@@ -18,7 +18,7 @@ dependencies = [
 ]
 
 [tool.setuptools.packages.find]
-where = ["."]
+where = ["discord_self_bot_tester*"]
 
 
 [project.urls]
