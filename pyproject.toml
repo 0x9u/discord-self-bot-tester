@@ -19,6 +19,7 @@ dependencies = [
 
 [tool.setuptools.packages.find]
 where = ["."]
+include = ["discord_self_bot_tester*"]
 
 [build-system]
 requires = ["setuptools>=77"]
