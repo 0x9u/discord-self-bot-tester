@@ -12,6 +12,14 @@ classifiers = [
 ]
 license = "GPL-2.0-only"
 license-files = ["LICEN[CS]E*"]
+dependencies = [
+    "pydantic >= 2.13",
+    "aiohttp >= 3.14"
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+
 
 [project.urls]
 Homepage = "https://github.com/0x9u/discord-self-bot-tester"

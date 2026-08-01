@@ -1,8 +1,8 @@
+from ..bot import Bot
+
 from ._base import Request, SelfBotRequestError
 
 from aiohttp import ClientSession
-
-from discordselftests.bot import Bot
 
 from urllib.parse import quote
 

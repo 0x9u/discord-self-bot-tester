@@ -1,10 +1,11 @@
 from ..bot import Bot
 
-from ._base import Assertion
 from ..gateway._base import MessageFilter
 from ..gateway.message import Message
 from ..requests._base import Request
 from ..requests.commands import Interaction
+
+from ._base import Assertion
 
 from typing import Optional, Self, List
 import re

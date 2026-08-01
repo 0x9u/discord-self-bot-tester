@@ -1,9 +1,8 @@
-from aiohttp import ClientSession
-
-from discordselftests.bot import Bot
+from ..bot import Bot
 
 from ._base import Request, SelfBotRequestError, SelfBotRequestSetupError
 
+from aiohttp import ClientSession
 from pydantic import BaseModel, ConfigDict
 import random
 from enum import Enum

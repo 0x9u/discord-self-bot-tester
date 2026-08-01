@@ -1,5 +1,5 @@
-from ._base import Request, SelfBotRequestError
 from ..bot import Bot
+from ._base import Request, SelfBotRequestError
 
 from aiohttp import ClientSession
 

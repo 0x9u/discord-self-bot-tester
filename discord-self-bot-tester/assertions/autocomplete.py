@@ -1,13 +1,12 @@
 from ..bot import Bot
-
-from ._base import Assertion
 from ..gateway.autocomplete import (
     CommandAutoCompleteResponse,
     CommandAutoCompleteChoice,
     CommandAutoCompleteChoiceValueType
 )
-
 from ..requests._base import Request
+
+from ._base import Assertion
 
 from typing import List, Self
 
