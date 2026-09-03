@@ -57,7 +57,6 @@ class Bot:
             pass # meh we ballin
 
     def _check_ws_failed(self):
-        print("WS_ERROR", self._ws_error)
         if self._ws_error is not None:
             raise RuntimeError(f"Websocket died") from self._ws_error
 
