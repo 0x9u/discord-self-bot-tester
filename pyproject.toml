@@ -1,12 +1,12 @@
 [project]
 name = "discord-self-bot-tester"
-version = "0.2.0"
+version = "0.3.0"
 authors = [
   { name="Oliver Po", email="oliver.po2882@gmail.com" },
 ]
 description = "A discord self-bot library to test out discord commands."
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.11"
 classifiers = [
     "Programming Language :: Python :: 3",
 ]
@@ -14,17 +14,31 @@ license = "GPL-2.0-only"
 license-files = ["LICEN[CS]E*"]
 dependencies = [
     "pydantic >= 2.13",
-    "aiohttp >= 3.14"
+    "aiohttp >= 3.14",
+    "dotenv>=0.9.9",
 ]
 
 [tool.setuptools.packages.find]
-where = ["."]
+where = ["src"]
 include = ["discord_self_bot_tester*"]
 
 [build-system]
 requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
+]
+
 [project.urls]
 Homepage = "https://github.com/0x9u/discord-self-bot-tester"
 Issues = "https://github.com/0x9u/discord-self-bot-tester/issues"
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "pytest-cov"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"

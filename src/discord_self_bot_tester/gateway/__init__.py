@@ -1,5 +1,5 @@
 from ._base import GatewayEvent, MessageFilter
-from .ws import Gateway
+from .ws import Gateway, GatewayException
 from .autocomplete import (
     CommandAutoCompleteChoice,
     CommandAutoCompleteChoiceValueType,
@@ -11,6 +11,7 @@ __all__ = [
     "GatewayEvent",
     "MessageFilter",
     "Gateway",
+    "GatewayException",
     "CommandAutoCompleteChoice",
     "CommandAutoCompleteChoiceValueType",
     "CommandAutoCompleteResponse",

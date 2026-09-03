@@ -40,6 +40,9 @@ PROPERTIES = {  # please don't steal my data - oliver
 
 WEBSOCKET_URL = "wss://gateway.discord.gg/?encoding=json&v=9"
 
+class GatewayException(GatewayEvent):
+    pass
+
 class Gateway:    
     _assert_msg: Optional[MessageFilter] = None
     _sleep_delay_max: int = 2  # in secs
@@ -159,12 +162,16 @@ class Gateway:
                     if _ws.close_code != 1000: # occurs when token is invalid
                         raise RuntimeError(
                             "Websocket closed by discord - " + str(_ws.close_code))
+            except BaseException as e:
+                self.bot._ws_error = e
+                await self._gateway_queue.put(GatewayException())
+                raise
             finally:
                 if self._ws is not None:
                     await self._ws.close()
                 
                 await session.close()
-    
-    async def stop_ws(self):
-        if self._ws is not None:
-            await self._ws.close()
+                # to propgate error to wait_ready
+                async with self._ready_cond:
+                    self.bot.ready = True
+                    self._ready_cond.notify_all()

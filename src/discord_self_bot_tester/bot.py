@@ -1,3 +1,5 @@
+from discord_self_bot_tester.gateway import GatewayException
+
 from .gateway import GatewayEvent, Gateway
 
 import aiohttp
@@ -22,13 +24,16 @@ class Bot:
     
     _tasks : Set[asyncio.Task]
     _gateway : Gateway
+    _ws_error : BaseException | None
     
     def __init__(self, token : str):
         self.token = token
         self._command_version = {}
+        # tasks that last for Bot lifetime
         self._tasks = set()
         
         self._gateway = Gateway(self)
+        self._ws_error = None
 
     def run(self):  # needs to run before anything and be global
         """
@@ -44,17 +49,21 @@ class Bot:
         await self.__stop_tasks()
 
     async def __stop_tasks(self):
-        await self._gateway.stop_ws()
-        
         for task in self._tasks:
             task.cancel()
         try:
-            await asyncio.gather(*self._tasks)
+            await asyncio.gather(*self._tasks, return_exceptions=True)
         except asyncio.CancelledError:
             pass # meh we ballin
 
+    def _check_ws_failed(self):
+        print("WS_ERROR", self._ws_error)
+        if self._ws_error is not None:
+            raise RuntimeError(f"Websocket died") from self._ws_error
+
     async def wait_ready(self):
         await self._gateway.wait_ready()
+        self._check_ws_failed()
 
     async def index_application_commands(self, guild_id: int):
         async with aiohttp.ClientSession() as session:
@@ -73,4 +82,10 @@ class Bot:
                     .setdefault(command["name"], (command["id"], command["version"]))
     
     async def get_next_gateway_event(self, deadline: int) -> GatewayEvent:
-        return await self._gateway.get_next_gateway_event(deadline)
+        self._check_ws_failed()
+        
+        event = await self._gateway.get_next_gateway_event(deadline)
+        if isinstance(event, GatewayException):
+            self._check_ws_failed()
+        
+        return event
