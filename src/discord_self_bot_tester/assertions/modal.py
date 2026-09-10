@@ -1,7 +1,7 @@
 from ..bot import Bot
 
 from ..gateway.modal import Modal
-from ..requests._base import Request
+from ..gateway._base import ModalFilter
 from ..requests.commands import Interaction
 
 from ._base import Assertion
@@ -9,50 +9,28 @@ from ._base import Assertion
 from typing import Self
 import re
 
-class ModalAssertion(Assertion[Modal]):
-    message_filter: MessageFilter | None
-
-    # if no assert conditions are set, it will just assert the next message being sent next that matches these filters
-
-    content_search_pattern: str | None
-    mentions: list[str] | None  # list of user ids
-    mention_roles: list[str] | None
+class ModalAssertion(Assertion[Interaction, Modal]):
+    modal_filter: ModalFilter | None
     
-    # TODO: check if it has buttons
-    
+    title_search_pattern: str | None
+
     def _check(self, gateway_event: Modal):
-        content_search_pattern = self.content_search_pattern
-
-        if content_search_pattern is not None and re.match(content_search_pattern, gateway_event.content) is None:
-            raise AssertionError(
-                f"Mismatch\nGot: {gateway_event.content}\nMust match: {content_search_pattern}")
-
-        if self.mentions is not None and gateway_event.mentions != self.mentions:
-            raise AssertionError(
-                f"Mismatch\nGot: {gateway_event.mentions}\nMust match: {self.mentions}")
-
-        if self.mention_roles is not None and gateway_event.mention_roles != self.mention_roles:
-            raise AssertionError(
-                f"Mismatch\nGot: {gateway_event.mention_roles}\nMust match: {self.mention_roles}")
-    
-    async def assert_request(self, bot : Bot, req : Request, deadline: int = 5) -> Message:
-        if self.message_filter is None:
-            self.message_filter = MessageFilter(
-                author_id=None,
-                channel_id=None,
-                nonce_id=req.nonce if isinstance(
-                    req, Interaction) else None
-            )
-        elif self.message_filter.is_followup and isinstance(req, Interaction):
-            self.message_filter.nonce_id = req.nonce
+        title_search_pattern = self.title_search_pattern
         
-        bot._gateway._assert_filter = self.message_filter
+        if title_search_pattern is not None and re.match(title_search_pattern, gateway_event.title) is None:
+            raise AssertionError(
+                f"Mismatch\nGot: {gateway_event.title}\nMust match: {title_search_pattern}")
+
+    
+    async def assert_request(self, bot: Bot, req: Interaction, deadline: int = 5) -> Modal:
+        self.modal_filter.nonce = req.nonce
+        bot._gateway._assert_filter = self.modal_filter
         
         await req.send(bot)
         
         gateway_event = await bot.get_next_gateway_event(deadline)
         
-        if not isinstance(gateway_event, Message):
+        if not isinstance(gateway_event, Modal):
             raise TypeError("Expected message, got: " +
                                 type(gateway_event).__name__)
                 
@@ -60,81 +38,25 @@ class ModalAssertion(Assertion[Modal]):
         
         return gateway_event
 
-    async def assert_gateway(self, bot : Bot, deadline: int = 5) -> Message:
-        if self.message_filter is None:
-            raise TypeError("MessageAssertion must have a message_filter for assert_gateway")
-        
-        bot._gateway._assert_filter = self.message_filter
-        
-        gateway_event = await bot.get_next_gateway_event(deadline)
-        
-        if not isinstance(gateway_event, Message):
-            raise TypeError("Expected message, got: " +
-                                type(gateway_event).__name__)
-                
-        self._check(gateway_event)
-        
-        return gateway_event
+    async def assert_gateway(self, bot : Bot, deadline: int = 5) -> Modal:
+        """
+        Redundant method, modals have to be triggered by an interaction to occur.
+        """
+        raise NotImplementedError
 
-class MessageAssertionBuilder:
-    data: MessageAssertion
+class ModalAssertionBuilder:
+    # nonce in assertion is to be overwritten by `assert_request`
+    data: ModalAssertion
 
     def __init__(self):
-        self.data = MessageAssertion(
-            message_filter=None, content_search_pattern=None, mentions=None, mention_roles=None)
+        self.data = ModalAssertion(
+            modal_filter=ModalFilter(nonce=""),
+            title_search_pattern=None,
+        )
 
-    def filter_by_author(self, author_id: int) -> Self:
-        if self.data.message_filter is None:
-            self.data.message_filter = MessageFilter(
-                author_id=str(author_id), channel_id=None, nonce_id=None)
-            return self
-
-        self.data.message_filter.author_id = str(author_id)
+    def assert_by_modal_title(self, pattern: str) -> Self:
+        self.data.title_search_pattern = pattern
         return self
 
-    def filter_by_channel(self, channel_id: int) -> Self:
-        if self.data.message_filter is None:
-            self.data.message_filter = MessageFilter(
-                author_id=None, channel_id=str(channel_id), nonce_id=None)
-            return self
-
-        self.data.message_filter.channel_id = str(channel_id)
-        return self
-
-    def filter_by_interaction_from_author(self) -> Self:
-        if self.data.message_filter is None:
-            self.data.message_filter = MessageFilter(
-                author_id=None, channel_id=None, nonce_id=None)
-        self.data.message_filter.interaction_is_from_author = True
-        return self
-
-    
-    # NOTE: use this if the command is deferred
-    def filter_by_message_update(self) -> Self:
-        if self.data.message_filter is None:
-            self.data.message_filter = MessageFilter(
-                author_id=None, channel_id=None, nonce_id=None)
-        self.data.message_filter.message_payload_type = "MESSAGE_UPDATE"
-        return self
-
-    def filter_by_followup_message(self) -> Self:
-        if self.data.message_filter is None:
-            self.data.message_filter = MessageFilter(
-                author_id=None, channel_id=None, nonce_id=None)
-        self.data.message_filter.is_followup = True
-        return self
-
-    def assert_by_message_content(self, pattern: str) -> Self:
-        self.data.content_search_pattern = pattern
-        return self
-
-    def assert_by_mentions(self, mentions: list[int]) -> Self:
-        self.data.mentions = list(map(str, mentions))
-        return self
-
-    def assert_by_mention_roles(self, mention_roles: list[int]) -> Self:
-        self.data.mention_roles = list(map(str, mention_roles))
-        return self
-
-    def compile(self) -> MessageAssertion:
+    def compile(self) -> ModalAssertion:
         return self.data

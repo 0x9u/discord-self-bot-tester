@@ -1,12 +1,14 @@
 from ..shared import Emoji
 
+from collections.abc import Iterator
 from enum import Enum
-from pydantic import BaseModel
-from typing import Literal, TypeAlias
+from pydantic import BaseModel, Field
+from typing import Annotated, Literal, TypeAlias
 
 class ActionRowComponent(BaseModel):
     type: Literal[1]
-    components: "Component"
+    id: int | None = None
+    components: list["Component"]
 
 class ButtonStyle(Enum):
 	PRIMARY = 1
@@ -23,11 +25,28 @@ class ButtonComponent(BaseModel):
     style: ButtonStyle
     label: str | None = None
     emoji: str | None = None
-    # what we actually want to use
-    custom_id: str
+    # what we actually want to use, absent on LINK and PREMIUM buttons
+    custom_id: str | None = None
     sku_id: str | None = None
     url: str | None = None
     disabled: bool | None = None
+
+class TextInputStyle(Enum):
+    SHORT = 1
+    PARAGRAPH = 2
+
+class TextInputComponent(BaseModel):
+    type: Literal[4]
+    id: int | None = None
+    custom_id: str
+    style: TextInputStyle
+    # deprecated by discord in favour of wrapping the input in a LabelComponent
+    label: str | None = None
+    min_length: int | None = None
+    max_length: int | None = None
+    required: bool | None = None
+    value: str | None = None
+    placeholder: str | None = None
 
 class SelectOption(BaseModel):
 	label: str
@@ -60,6 +79,11 @@ class MentionableSelectComponent(SelectComponent):
 
 class ChannelSelectComponent(SelectComponent):
     type: Literal[8]
+
+class TextDisplayComponent(BaseModel):
+    type: Literal[10]
+    id: int | None = None
+    content: str
 
 class LabelComponent(BaseModel):
     type: Literal[18]
@@ -111,17 +135,42 @@ class Checkbox(BaseModel):
     custom_id: str
     default: bool | None = None
 
-Component : TypeAlias = (
+Component : TypeAlias = Annotated[
     ActionRowComponent
     | ButtonComponent
+    | TextInputComponent
     | StringSelectComponent
     | UserSelectComponent
     | RoleSelectComponent
     | MentionableSelectComponent
     | ChannelSelectComponent
+    | TextDisplayComponent
     | LabelComponent
     | FileUpload
     | RadioGroup
     | CheckboxGroup
-    | Checkbox
-)
+    | Checkbox,
+    Field(discriminator="type")
+]
+
+# `Component` is only defined now, so the self referencing models need a second pass
+ActionRowComponent.model_rebuild()
+LabelComponent.model_rebuild()
+
+def child_components(component: Component) -> list[Component]:
+    """
+    The components nested directly inside `component`, layout components only.
+    """
+    if isinstance(component, ActionRowComponent):
+        return component.components
+    if isinstance(component, LabelComponent):
+        return [component.component]
+    return []
+
+def walk_components(components: list[Component]) -> Iterator[Component]:
+    """
+    Every component in the tree, parents before their children.
+    """
+    for component in components:
+        yield component
+        yield from walk_components(child_components(component))

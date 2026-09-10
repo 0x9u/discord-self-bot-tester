@@ -10,7 +10,7 @@ from ._base import Assertion
 
 from typing import Self
 
-class AutoCompleteAssertion(Assertion[CommandAutoCompleteResponse]):
+class AutoCompleteAssertion(Assertion[Request, CommandAutoCompleteResponse]):
     # if false, it will just check if choices contains the provided choices given for this assertion
     choice_exact_match: bool
     choices: list[CommandAutoCompleteChoice]

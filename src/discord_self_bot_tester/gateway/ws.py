@@ -1,9 +1,5 @@
-from .message import Message
-from .modal import Modal
 from ._base import (
     Filter,
-    MessageFilter,
-    ModalFilter,
     GatewayEvent
 )
 from .autocomplete import CommandAutoCompleteResponse
@@ -118,6 +114,7 @@ class Gateway:
                         if gateway_event.type == aiohttp.WSMsgType.TEXT:
                             data: dict[str, Any] = gateway_event.json()
                             logging.debug(f"Gateway event: {data}")
+                            print(f"DATA {data}")
                             opcode: int = data["op"]
                             if opcode == 9:  # invalid session
                                 # todo: capture error, make sure its not silent
@@ -152,15 +149,20 @@ class Gateway:
                                             data)
                                         await self._gateway_queue.put(gateway_event)
                                     case _:
-                                        if not isinstance(self._assert_filter, ModalFilter):
+                                        # the filter decides which payload it wants and
+                                        # builds the gateway event out of it
+                                        if self._assert_filter is None:
+                                            logging.debug(
+                                                "Unknown data: " + str(data))
                                             continue
-                                        if self._assert_filter.matches(self.bot.user_id, data):
-                                            modal_data = data["d"]
-                                            self._assert_filter = None
-                                            gateway_event = Message.model_validate(msg_data)
-                                            await self._gateway_queue.put(gateway_event)
-                                        logging.debug(
-                                            "Unknown data: " + str(data))
+                                        matched = self._assert_filter.matches(
+                                            self.bot.user_id, data)
+                                        if matched is None:
+                                            logging.debug(
+                                                "Unknown data: " + str(data))
+                                            continue
+                                        self._assert_filter = None
+                                        await self._gateway_queue.put(matched)
                     
                     if _ws.close_code != 1000: # occurs when token is invalid
                         raise RuntimeError(

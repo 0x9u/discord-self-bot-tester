@@ -27,6 +27,7 @@ class InteractionType(Enum):
     APP_COMMAND = 2
     MESSAGE_COMPONENT = 3
     APPLICATION_COMMAND_AUTOCOMPLETE = 4
+    MODAL_SUBMIT = 5
 
 ApplicationCommandArgValueType : TypeAlias = bool | int | float | str
 
@@ -42,6 +43,7 @@ class ApplicationCommand(BaseModel):
     focused: bool | None = None
 
 class ComponentType(Enum):
+	ACTION_ROW = 1
 	BUTTON = 2
 	STRING_SELECT = 3
 	TEXT_INPUT = 4
@@ -49,6 +51,8 @@ class ComponentType(Enum):
 	ROLE_SELECT = 6
 	MENTIONABLE_SELECT = 7
 	CHANNEL_SELECT = 8
+	TEXT_DISPLAY = 10
+	LABEL = 18
 	FILE_UPLOAD = 19
 	RADIO_GROUP = 21
 	CHECKBOX_GROUP = 22
@@ -58,9 +62,31 @@ class ComponentType(Enum):
 class MessageComponent(BaseModel):
 	custom_id: str
 	component_type: ComponentType
-	values: list[str]
+	values: list[str] | None = None
 
-InteractionDataType : TypeAlias = ApplicationCommand | MessageComponent
+# https://docs.discord.food/interactions/receiving-and-responding#modal-submit-component-data-structure
+class ModalSubmitComponentData(BaseModel):
+	type: ComponentType
+	id: int | None = None
+	# absent on ACTION_ROW and LABEL
+	custom_id: str | None = None
+	# TEXT_INPUT, RADIO_GROUP, CHECKBOX
+	value: str | bool | None = None
+	# the select menus, FILE_UPLOAD and CHECKBOX_GROUP
+	values: list[str] | None = None
+	# LABEL
+	component: "ModalSubmitComponentData | None" = None
+	# ACTION_ROW
+	components: list["ModalSubmitComponentData"] | None = None
+
+# https://docs.discord.food/interactions/receiving-and-responding#modal-submit-data-structure
+class ModalSubmitData(BaseModel):
+	# the id of the modal discord sent us, echoed back
+	id: str | None = None
+	custom_id: str
+	components: list[ModalSubmitComponentData]
+
+InteractionDataType : TypeAlias = ApplicationCommand | MessageComponent | ModalSubmitData
 
 class InteractionFailed(Exception):
     pass
@@ -73,12 +99,17 @@ class Interaction(Request):
     nonce: str
     data: InteractionDataType
     session_id: str | None = None
+    # only applicable to MESSAGE_COMPONENT interactions
+    message_id: str | None = None
+    message_flags: int | None = None
     
     async def request(self, bot: Bot, session: ClientSession):
         # dispatch depending on type
         
-        if self.type == Interaction.APP_COMMAND or self.type == InteractionType.APPLICATION_COMMAND_AUTOCOMPLETE:
+        if self.type == InteractionType.APP_COMMAND or self.type == InteractionType.APPLICATION_COMMAND_AUTOCOMPLETE:
             await self._prepare_app_command(bot, session)
+        elif self.type == InteractionType.MESSAGE_COMPONENT or self.type == InteractionType.MODAL_SUBMIT:
+            self.session_id = bot.session_id
          
         json = self.model_dump(mode="json", exclude_none=True)
          
@@ -93,6 +124,8 @@ class Interaction(Request):
             raise SelfBotRequestError("Request failed: " + str(res_data), res.status)
 
         await asyncio.wait_for(asyncio.shield(bot._gateway._interaction_status_events[self.nonce].wait()), timeout=INTERACTION_TIMEOUT)
+        
+        print("WOW")
         
         del bot._gateway._interaction_status_events[self.nonce]
         status = bot._gateway._interaction_status_data.pop(self.nonce)
@@ -152,7 +185,8 @@ class ApplicationCommandBuilder:
     def compile(self) -> ApplicationCommand:
         return self.data
 
-def build_interaction(type: InteractionType, application_id: int, guild_id: int, channel_id: int, data: InteractionDataType) -> Interaction:
+def build_interaction(type: InteractionType, application_id: int, guild_id: int, channel_id: int, data: InteractionDataType,
+                      message_id: str | None = None, message_flags: int | None = None) -> Interaction:
     return Interaction(
         type=type,
         application_id=str(application_id),
@@ -160,7 +194,9 @@ def build_interaction(type: InteractionType, application_id: int, guild_id: int,
         channel_id=str(channel_id),
         nonce=str(random.randint(
             100_000_000_000_000_0000, 900_000_000_000_000_0000)),
-        data=data)
+        data=data,
+        message_id=message_id,
+        message_flags=message_flags)
 
 
 def build_app_command(type: Literal[InteractionType.APP_COMMAND, InteractionType.APPLICATION_COMMAND_AUTOCOMPLETE],
@@ -171,35 +207,11 @@ def build_app_command(type: Literal[InteractionType.APP_COMMAND, InteractionType
                     ) -> Interaction:
     return build_interaction(type, application_id, guild_id, channel_id, data)
 
-def press_button(application_id: int, guild_id: int, channel_id: int, custom_id: str) -> Interaction:
+def submit_modal(application_id: int, guild_id: int, channel_id: int, data: ModalSubmitData) -> Interaction:
     return build_interaction(
-        InteractionType.MESSAGE_COMPONENT,
+        InteractionType.MODAL_SUBMIT,
         application_id,
         guild_id,
         channel_id,
-        MessageComponent(custom_id=custom_id, component_type=ComponentType.BUTTON)    
-    )
-
-class SelectType(Enum):
-    STRING_SELECT = 3
-    USER_SELECT = 5
-    ROLE_SELECT = 6
-    MENTIONABLE_SELECT = 7
-    CHANNEL_SELECT = 8
-
-SelectType : TypeAlias = Literal[
-    ComponentType.STRING_SELECT,
-    ComponentType.USER_SELECT,
-    ComponentType.ROLE_SELECT,
-	ComponentType.MENTIONABLE_SELECT,
-	ComponentType.CHANNEL_SELECT
-]
-
-def select_dropdown(application_id: int, guild_id: int, channel_id: int, select_type: SelectType, custom_id: str, value: str) -> Interaction:
-    return build_interaction(
-        InteractionType.MESSAGE_COMPONENT,
-        application_id,
-        guild_id,
-        channel_id,
-        MessageComponent(custom_id=custom_id, component_type=select_type, values=[value])    
+        data
     )

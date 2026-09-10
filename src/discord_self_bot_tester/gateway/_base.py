@@ -1,6 +1,3 @@
-from .message import Message
-from .modal import Modal
-
 from pydantic import BaseModel
 
 from abc import ABC, abstractmethod
@@ -25,30 +22,41 @@ class MessageFilter(Filter):
 
     interaction_is_from_author : bool = False
     
+    message_flags: int | None
+    
     message_payload_type : Literal["MESSAGE_CREATE", "MESSAGE_UPDATE"] = "MESSAGE_CREATE"
 
     def matches(self, user_id : str, data: dict[str, Any]) -> GatewayEvent | None:
+        from .message import Message
+
         message_payload_type = data["t"]
+        
+        # checked first so unrelated gateway events don't get indexed as messages
+        if self.message_payload_type != message_payload_type:
+            return None
+        
         msg_data = data["d"]
         
         if self.author_id is not None and self.author_id != msg_data["author"]["id"]:
             return None
         if self.channel_id is not None and self.channel_id != msg_data["channel_id"]:
             return None
-        if self.nonce_id is not None and self.nonce_id != msg_data["nonce"]:
+        if self.nonce_id is not None and self.nonce_id != msg_data.get("nonce"):
             return None
         if self.interaction_is_from_author and \
             ("interaction_metadata" in data or \
                 user_id != msg_data["interaction_metadata"]["user"]["id"]):
             return None
-        if self.message_payload_type != message_payload_type:
+        if self.message_flags is not None and self.message_flags != msg_data.get("flags", 0):
             return None
         return Message.model_validate(msg_data)
 
 class ModalFilter(Filter):
     nonce: str
     
-    def matches(self, user_id : str, data: dict[str, Any]) -> bool:        
+    def matches(self, user_id : str, data: dict[str, Any]) -> GatewayEvent | None:
+        from .modal import Modal
+
         modal_data = data["d"]
         if data["t"] == "INTERACTION_MODAL_CREATE" and self.nonce == modal_data["nonce"]:
             return Modal.model_validate(modal_data)
