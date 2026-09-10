@@ -1,7 +1,6 @@
 from ..bot import Bot
 
-from ..gateway._base import MessageFilter
-from ..gateway.message import Message
+from ..gateway.modal import Modal
 from ..requests._base import Request
 from ..requests.commands import Interaction
 
@@ -10,10 +9,7 @@ from ._base import Assertion
 from typing import Self
 import re
 
-class MessageAssertion(Assertion[Message]):
-    # what to distingish the message from
-    # if None, it will pick the next message in the websocket, or if
-    # the request is a app command, it will pick the message replying to the command.
+class ModalAssertion(Assertion[Modal]):
     message_filter: MessageFilter | None
 
     # if no assert conditions are set, it will just assert the next message being sent next that matches these filters
@@ -24,7 +20,7 @@ class MessageAssertion(Assertion[Message]):
     
     # TODO: check if it has buttons
     
-    def _check(self, gateway_event: Message):
+    def _check(self, gateway_event: Modal):
         content_search_pattern = self.content_search_pattern
 
         if content_search_pattern is not None and re.match(content_search_pattern, gateway_event.content) is None:

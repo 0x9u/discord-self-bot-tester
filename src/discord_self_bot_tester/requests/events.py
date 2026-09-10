@@ -8,7 +8,7 @@ from enum import Enum
 
 from datetime import datetime
 
-from typing import Optional, TypeAlias, List
+from typing import TypeAlias
 
 # ENDPOINT URLS
 
@@ -73,15 +73,15 @@ class RecurrenceRule(BaseModel):
     start: datetime
     frequency: RecurrenceRuleFrequency
     interval: int
-    by_weekday: Optional[List[RecurrenceRuleWeekday]]
-    by_n_weekday: Optional[List[RecurrenceRuleNWeekday]]
+    by_weekday: list[RecurrenceRuleWeekday] | None
+    by_n_weekday: list[RecurrenceRuleNWeekday] | None
     # NOTE: doesn't have by_n_weekday
-    by_month: Optional[List[RecurrenceRuleMonth]]
-    by_month_day: Optional[List[int]]
+    by_month: list[RecurrenceRuleMonth] | None
+    by_month_day: list[int] | None
 
 
 class GuildScheduledEventEntity(BaseModel):
-    location: Optional[str]
+    location: str | None
 
 # https://docs.discord.food/resources/guild-scheduled-event
 
@@ -93,11 +93,11 @@ class ScheduledEvent(Request):
     description: str
     privacy_level: PrivacyLevel
     scheduled_start_time: datetime
-    scheduled_end_time: Optional[datetime]
+    scheduled_end_time: datetime | None
     entity_type: GuildScheduledEventEntityType
-    recurrence_rule: Optional[RecurrenceRule]
-    channel_id:  Optional[str]
-    entity_metadata: Optional[GuildScheduledEventEntity]
+    recurrence_rule: RecurrenceRule | None
+    channel_id: str | None
+    entity_metadata: GuildScheduledEventEntity | None
     
     async def request(self, bot: Bot, session: ClientSession):        
         json = self.model_dump(mode="json", exclude_none=True)
@@ -191,7 +191,7 @@ class ScheduledEventBuilder:
 
         return self
 
-    def set_recurrence_rule_daily(self, days: List[RecurrenceRuleWeekday]) -> Self:
+    def set_recurrence_rule_daily(self, days: list[RecurrenceRuleWeekday]) -> Self:
         if self.data.recurrence_rule is not None:
             raise RuntimeError("Recurrence rule already set")
 

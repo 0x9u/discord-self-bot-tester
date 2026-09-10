@@ -8,12 +8,12 @@ from ..requests._base import Request
 
 from ._base import Assertion
 
-from typing import List, Self
+from typing import Self
 
 class AutoCompleteAssertion(Assertion[CommandAutoCompleteResponse]):
     # if false, it will just check if choices contains the provided choices given for this assertion
     choice_exact_match: bool
-    choices: List[CommandAutoCompleteChoice]
+    choices: list[CommandAutoCompleteChoice]
 
     def _check(self, gateway_event: CommandAutoCompleteResponse):
         if self.choice_exact_match:

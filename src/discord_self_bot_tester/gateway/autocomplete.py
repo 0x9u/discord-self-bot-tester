@@ -3,8 +3,6 @@ from ._base import GatewayEvent
 from pydantic import BaseModel
 from typing import TypeAlias
 
-from typing import List
-
 CommandAutoCompleteChoiceValueType: TypeAlias = float | int | str
 
 class CommandAutoCompleteChoice(BaseModel):
@@ -15,4 +13,4 @@ class CommandAutoCompleteChoice(BaseModel):
         return hash((self.name, self.value))
 
 class CommandAutoCompleteResponse(GatewayEvent):
-    choices: List[CommandAutoCompleteChoice]
+    choices: list[CommandAutoCompleteChoice]

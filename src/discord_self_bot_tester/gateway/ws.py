@@ -1,6 +1,9 @@
 from .message import Message
+from .modal import Modal
 from ._base import (
+    Filter,
     MessageFilter,
+    ModalFilter,
     GatewayEvent
 )
 from .autocomplete import CommandAutoCompleteResponse
@@ -9,8 +12,9 @@ import aiohttp
 import random
 import asyncio
 import logging
+from collections import defaultdict
 
-from typing import cast, Optional, Any, TYPE_CHECKING
+from typing import cast, Any, TYPE_CHECKING
 
 # avoids cyclic import
 if TYPE_CHECKING:
@@ -44,17 +48,23 @@ class GatewayException(GatewayEvent):
     pass
 
 class Gateway:    
-    _assert_msg: Optional[MessageFilter] = None
+    _assert_filter: Filter | None = None
     _sleep_delay_max: int = 2  # in secs
     _gateway_queue: asyncio.Queue[GatewayEvent]
     _ready_cond: asyncio.Condition
     
     bot: "Bot"
     
+    # NOTE: this gets removed in Interaction class
+    _interaction_status_events: dict[str, asyncio.Event]
+    _interaction_status_data: dict[str, bool]
+    
     def __init__(self, bot: "Bot"):        
         self._gateway_queue = asyncio.Queue()
         self._ready_cond = asyncio.Condition()
         self.bot = bot
+        self._interaction_status_events = defaultdict(asyncio.Event)
+        self._interaction_status_data = {}
 
     # Required to await for session_id, etc from READY payload
     async def wait_ready(self):
@@ -123,24 +133,10 @@ class Gateway:
                             elif opcode == 0:
                                 t: str = data["t"]
                                 match t:
-                                    case "MESSAGE_CREATE" | "MESSAGE_UPDATE":
-                                        data = data["d"]
-
-                                        msg_match = self._assert_msg is not None and \
-                                            self._assert_msg.matches(
-                                                self.bot.user_id,
-                                                t,
-                                                data
-                                            )
-                                        if msg_match:
-                                            self._assert_msg = None
-                                            gateway_event = Message.model_validate(
-                                                data)
-                                            await self._gateway_queue.put(gateway_event)
-                                        else:
-                                            logging.debug(
-                                                "Unknown data: " + str(data))
-
+                                    case "INTERACTION_SUCCESS" | "INTERACTION_FAILURE":
+                                        nonce = data["d"]["nonce"]
+                                        self._interaction_status_events[nonce].set()
+                                        self._interaction_status_data[nonce] = t == "INTERACTION_SUCCESS"                                        
                                     case "READY":
                                         data = data["d"]
                                         self.bot.user_id = data["user"]["id"]
@@ -156,6 +152,13 @@ class Gateway:
                                             data)
                                         await self._gateway_queue.put(gateway_event)
                                     case _:
+                                        if not isinstance(self._assert_filter, ModalFilter):
+                                            continue
+                                        if self._assert_filter.matches(self.bot.user_id, data):
+                                            modal_data = data["d"]
+                                            self._assert_filter = None
+                                            gateway_event = Message.model_validate(msg_data)
+                                            await self._gateway_queue.put(gateway_event)
                                         logging.debug(
                                             "Unknown data: " + str(data))
                     

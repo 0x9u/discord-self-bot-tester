@@ -1,16 +1,25 @@
+from .message import Message
+from .modal import Modal
+
 from pydantic import BaseModel
 
-from typing import Optional, Literal, Any
+from abc import ABC, abstractmethod
+from typing import Literal, Any
 
 # NOTE: ONLY HERE TO AVOID CIRCULAR IMPORT
 
 class GatewayEvent(BaseModel):
     pass
 
-class MessageFilter(BaseModel):
-    author_id: Optional[str]
-    channel_id: Optional[str]
-    nonce_id: Optional[str]  # only used if message_filter is None
+class Filter(BaseModel, ABC):
+    @abstractmethod
+    def matches(self, user_id: str, data: dict[str, Any]) -> GatewayEvent | None:
+        raise NotImplementedError
+
+class MessageFilter(Filter):
+    author_id: str | None
+    channel_id: str | None
+    nonce_id: str | None # only used if message_filter is None
     # used to check whether to set nonce_id or not, when message_filter is None this is default to True
     is_followup: bool = False
 
@@ -18,20 +27,33 @@ class MessageFilter(BaseModel):
     
     message_payload_type : Literal["MESSAGE_CREATE", "MESSAGE_UPDATE"] = "MESSAGE_CREATE"
 
-    def matches(self, user_id : str, message_payload_type: str, data: dict[str, Any]) -> bool:
-        if self.author_id is not None and self.author_id != data["author"]["id"]:
-            return False
-        if self.channel_id is not None and self.channel_id != data["channel_id"]:
-            return False
-        if self.nonce_id is not None and self.nonce_id != data["nonce"]:
-            return False
+    def matches(self, user_id : str, data: dict[str, Any]) -> GatewayEvent | None:
+        message_payload_type = data["t"]
+        msg_data = data["d"]
+        
+        if self.author_id is not None and self.author_id != msg_data["author"]["id"]:
+            return None
+        if self.channel_id is not None and self.channel_id != msg_data["channel_id"]:
+            return None
+        if self.nonce_id is not None and self.nonce_id != msg_data["nonce"]:
+            return None
         if self.interaction_is_from_author and \
             ("interaction_metadata" in data or \
-                user_id != data["interaction_metadata"]["user"]["id"]):
-            return False
+                user_id != msg_data["interaction_metadata"]["user"]["id"]):
+            return None
         if self.message_payload_type != message_payload_type:
-            return False
-        return True
+            return None
+        return Message.model_validate(msg_data)
+
+class ModalFilter(Filter):
+    nonce: str
+    
+    def matches(self, user_id : str, data: dict[str, Any]) -> bool:        
+        modal_data = data["d"]
+        if data["t"] == "INTERACTION_MODAL_CREATE" and self.nonce == modal_data["nonce"]:
+            return Modal.model_validate(modal_data)
+        else:
+            return None
 
 PROPERTIES = {  # please don't steal my data - oliver
     "os": "Windows",
