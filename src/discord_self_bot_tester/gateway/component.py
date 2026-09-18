@@ -1,3 +1,16 @@
+"""
+Discord's message and modal component tree.
+
+One model per component type, united into the `Component` tagged union that pydantic
+discriminates on the wire `type` number. The union is recursive - action rows and
+labels hold further components - so `child_components` and `walk_components` exist to
+traverse it without every caller re-learning which types nest.
+
+The numbering is discord's own and is shared between message views and modals, so the
+same models cover both; `..requests.commands.ComponentType` is the matching enum for
+the payloads we send back.
+"""
+
 from ..shared import Emoji
 
 from collections.abc import Iterator
@@ -6,11 +19,21 @@ from pydantic import BaseModel, Field
 from typing import Annotated, Literal, TypeAlias
 
 class ActionRowComponent(BaseModel):
+    """
+    A horizontal row holding up to five interactive components.
+    """
+
     type: Literal[1]
     id: int | None = None
     components: list["Component"]
 
 class ButtonStyle(Enum):
+	"""
+	How a button is rendered.
+
+	LINK and PREMIUM are handled entirely by the client and send no interaction.
+	"""
+
 	PRIMARY = 1
 	SECONDARY = 2
 	SUCCESS = 3
@@ -19,6 +42,14 @@ class ButtonStyle(Enum):
 	PREMIUM = 6
 
 class ButtonComponent(BaseModel):
+    """
+    A clickable button.
+
+    Only buttons carrying a `custom_id` produce an interaction; LINK and PREMIUM
+    buttons are handled entirely by the client, which is why `custom_id` is optional
+    here and checked by `..requests.component.find_button`.
+    """
+
     type: Literal[2]
     # https://discordjs.dev/docs/packages/discord-api-types/0.38.41/v10/APIButtonBase:Interface#id
     id: int | None = None
@@ -32,10 +63,18 @@ class ButtonComponent(BaseModel):
     disabled: bool | None = None
 
 class TextInputStyle(Enum):
+    """
+    Whether a modal text field is a single line (SHORT) or a box (PARAGRAPH).
+    """
+
     SHORT = 1
     PARAGRAPH = 2
 
 class TextInputComponent(BaseModel):
+    """
+    A free text field in a modal, either one line (SHORT) or many (PARAGRAPH).
+    """
+
     type: Literal[4]
     id: int | None = None
     custom_id: str
@@ -49,6 +88,14 @@ class TextInputComponent(BaseModel):
     placeholder: str | None = None
 
 class SelectOption(BaseModel):
+	"""
+	One entry in a string select or a radio/checkbox group.
+
+	`label` is what the client renders and `value` is what gets submitted; the helpers
+	let tests name either, since a test written against labels reads like the thing a
+	user would actually click.
+	"""
+
 	label: str
 	value: str
 	description: str | None = None
@@ -56,6 +103,16 @@ class SelectOption(BaseModel):
 	default: bool | None = None
 
 class SelectComponent(BaseModel):
+	"""
+	Shared shape of every select menu.
+
+	Not a `Component` member itself - only the concrete subclasses are, each pinning
+	the wire `type` - but it is what the helpers isinstance against when they want "any
+	dropdown". Only `StringSelectComponent` populates `options`: the user, role,
+	mentionable and channel menus are filled from discord's own pickers, so their
+	values are snowflakes that never appear in the payload.
+	"""
+
 	id: int | None = None
 	custom_id: str
 	options: list[SelectOption]
@@ -66,26 +123,57 @@ class SelectComponent(BaseModel):
 	disabled: bool | None = None
 
 class StringSelectComponent(SelectComponent):
+    """
+    A menu of developer defined options. The only select whose `options` are populated.
+    """
+
     type: Literal[3]
 
 class UserSelectComponent(SelectComponent):
+    """
+    A user picker. Submits user ids, so use `select_dropdown_values` on it.
+    """
+
     type: Literal[5]
 
 class RoleSelectComponent(SelectComponent):
+    """
+    A role picker. Submits role ids, so use `select_dropdown_values` on it.
+    """
+
     type: Literal[6]
 
 class MentionableSelectComponent(SelectComponent):
+    """
+    A picker over both users and roles. Submits ids of either kind.
+    """
+
     type: Literal[7]
 
 class ChannelSelectComponent(SelectComponent):
+    """
+    A channel picker. Submits channel ids, so use `select_dropdown_values` on it.
+    """
+
     type: Literal[8]
 
 class TextDisplayComponent(BaseModel):
+    """
+    Static markdown. Holds no value and produces no interaction.
+    """
+
     type: Literal[10]
     id: int | None = None
     content: str
 
 class LabelComponent(BaseModel):
+    """
+    Wraps a single component with the caption rendered above it.
+
+    Discord's replacement for the text input's own deprecated `label`, and the thing
+    `ModalResponseBuilder.select` matches on, because it is the text a user sees.
+    """
+
     type: Literal[18]
     id: int | None = None
     label: str
@@ -93,6 +181,10 @@ class LabelComponent(BaseModel):
     component: "Component"
 
 class FileUpload(BaseModel):
+    """
+    A file picker in a modal. Its submitted values are uploaded attachment ids.
+    """
+
     type: Literal[19]
     id: int | None = None
     custom_id: str
@@ -102,12 +194,20 @@ class FileUpload(BaseModel):
     file_types : list[str] | None = None
 
 class RadioGroupOption(BaseModel):
+	"""
+	One choice in a `RadioGroup`.
+	"""
+
 	value: str
 	label: str
 	description: str | None = None
 	default: bool | None = None
 
 class RadioGroup(BaseModel):
+    """
+    A set of options of which exactly one can be chosen.
+    """
+
     type: Literal[21]
     id: int | None = None
     custom_id: str
@@ -115,12 +215,20 @@ class RadioGroup(BaseModel):
     required: bool | None = None
 
 class CheckboxGroupOption(BaseModel):
+	"""
+	One choice in a `CheckboxGroup`.
+	"""
+
 	value: str
 	label: str
 	description: str | None = None
 	default: bool | None = None
 
 class CheckboxGroup(BaseModel):
+    """
+    A set of options of which several can be chosen, bounded by min/max values.
+    """
+
     type: Literal[22]
     id: int | None = None
     custom_id: str
@@ -130,11 +238,17 @@ class CheckboxGroup(BaseModel):
     required: bool | None = None
 
 class Checkbox(BaseModel):
+    """
+    A single on/off box. Submits a bool rather than a list of values.
+    """
+
     type: Literal[23]
     id: int | None = None
     custom_id: str
     default: bool | None = None
 
+# Any component discord may send us, discriminated on the wire `type` number so
+# pydantic picks the right model without trying each in turn.
 Component : TypeAlias = Annotated[
     ActionRowComponent
     | ButtonComponent
@@ -153,7 +267,7 @@ Component : TypeAlias = Annotated[
     Field(discriminator="type")
 ]
 
-# `Component` is only defined now, so the self referencing models need a second pass
+# requires second pass because `Component` is defined after
 ActionRowComponent.model_rebuild()
 LabelComponent.model_rebuild()
 

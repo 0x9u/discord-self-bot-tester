@@ -1,3 +1,10 @@
+"""
+Expectations about a modal an interaction opens.
+
+Modals only ever arrive in response to an interaction we sent, so there is nothing to
+filter on beyond that interaction's nonce, which `assert_request` fills in itself.
+"""
+
 from ..bot import Bot
 
 from ..gateway.modal import Modal
@@ -10,6 +17,10 @@ from typing import Self
 import re
 
 class ModalAssertion(Assertion[Interaction, Modal]):
+    """
+    Waits for the modal an interaction opens. Build one with `ModalAssertionBuilder`.
+    """
+
     modal_filter: ModalFilter | None
     
     title_search_pattern: str | None
@@ -45,6 +56,14 @@ class ModalAssertion(Assertion[Interaction, Modal]):
         raise NotImplementedError
 
 class ModalAssertionBuilder:
+    """
+    Assembles a `ModalAssertion`.
+
+    modal = await ModalAssertionBuilder()\
+        .assert_by_modal_title("Register.*")\
+        .compile().assert_request(bot, press_button(msg, "Sign up"))
+    """
+
     # nonce in assertion is to be overwritten by `assert_request`
     data: ModalAssertion
 
@@ -55,8 +74,14 @@ class ModalAssertionBuilder:
         )
 
     def assert_by_modal_title(self, pattern: str) -> Self:
+        """
+        The title has to match this regex, anchored at the start (`re.match`).
+        """
         self.data.title_search_pattern = pattern
         return self
 
     def compile(self) -> ModalAssertion:
+        """
+        The finished assertion.
+        """
         return self.data

@@ -1,3 +1,17 @@
+"""
+Filling in and submitting a modal that discord opened for us.
+
+A MODAL_SUBMIT payload has to mirror the layout of the modal it answers - the same
+nesting of action rows and labels, the same ids - which is fiddly to write by hand and
+silently wrong when it drifts. `ModalResponseBuilder` takes the `Modal` off the gateway
+and rebuilds that shape from it, so a test only names the fields it wants to answer.
+
+Fields are named by the label discord renders above them, which is what a user would
+read, and every answer is checked against the component it is going into: the wrong
+component type, an unknown option, a value outside the length or count bounds, or a
+required field left blank all fail before anything is sent.
+"""
+
 from ..gateway.component import (
     ActionRowComponent,
     Checkbox,
@@ -18,7 +32,8 @@ from .commands import (
     Interaction,
     ModalSubmitComponentData,
     ModalSubmitData,
-    submit_modal,
+    InteractionType,
+    _build_interaction
 )
 
 from typing import Self, TypeAlias
@@ -33,8 +48,10 @@ AnswerComponent: TypeAlias = (
     | Checkbox
 )
 
-
 def _find_label(components: list[Component], label: str) -> LabelComponent | None:
+    """
+    Depth first search for the label with this exact caption.
+    """
     for component in components:
         if isinstance(component, LabelComponent) and component.label == label:
             return component
@@ -44,6 +61,9 @@ def _find_label(components: list[Component], label: str) -> LabelComponent | Non
     return None
 
 def _find_custom_id(components: list[Component], custom_id: str) -> Component | None:
+    """
+    Depth first search for the component with this developer defined id.
+    """
     for component in components:
         if getattr(component, "custom_id", None) == custom_id:
             return component
@@ -89,12 +109,12 @@ class ModalResponseBuilder:
     req = ModalResponseBuilder(modal)\
         .select("Your name").set_text("oliver")\
         .select("Favourite colour").choose("Green")\
-        .compile_request(GUILD_ID, CHANNEL_ID)
+        .compile(GUILD_ID, CHANNEL_ID)
     """
 
     modal: Modal
 
-    # custom_id -> answer, compile walks the modal tree so insertion order is irrelevant
+    # custom_id -> answer
     _answers: dict[str, ModalSubmitComponentData]
     _selected: AnswerComponent | None
     # how the selection was written, only used for error messages
@@ -231,7 +251,23 @@ class ModalResponseBuilder:
 
         return self.set_values(*values)
 
-    def compile(self) -> ModalSubmitData:
+    def compile(self, guild_id: int, channel_id: int, application_id: int | None = None) -> Interaction:
+        """
+        Compiles into a MODAL_SUBMIT interaction, ready to be sent or asserted on.
+
+        `application_id` is taken off the modal payload when discord included it, and
+        has to be passed explicitly when it did not.
+
+        Raises if any component discord marked required was never answered, so a modal
+        that gained a field fails here rather than being submitted incomplete.
+        """
+        
+        if application_id is None:
+            if self.modal.application_id is None:
+                raise AssertionError(
+                    "Modal payload carried no application_id, pass one explicitly")
+            application_id = int(self.modal.application_id)
+        
         missing = self._missing_required()
         if len(missing) != 0:
             raise AssertionError(
@@ -239,31 +275,26 @@ class ModalResponseBuilder:
                 f" unanswered: {missing}")
 
         components = [compiled for compiled
-                      in (self._compile_component(component)
-                          for component in self.modal.components)
-                      if compiled is not None]
+                        in (self._compile_component(component)
+                            for component in self.modal.components)
+                        if compiled is not None]
 
-        return ModalSubmitData(
-            id=self.modal.id,
-            custom_id=self.modal.custom_id,
-            components=components
+        return _build_interaction(
+            InteractionType.MODAL_SUBMIT,
+            application_id,
+            guild_id,
+            channel_id,
+            ModalSubmitData(
+                id=self.modal.id,
+                custom_id=self.modal.custom_id,
+                components=components
+            )
         )
 
-    def compile_request(self, guild_id: int, channel_id: int, application_id: int | None = None) -> Interaction:
-        """
-        Compiles into a MODAL_SUBMIT interaction, ready to be sent or asserted on.
-
-        `application_id` is taken off the modal payload when discord included it.
-        """
-        if application_id is None:
-            if self.modal.application_id is None:
-                raise AssertionError(
-                    "Modal payload carried no application_id, pass one explicitly")
-            application_id = int(self.modal.application_id)
-
-        return submit_modal(application_id, guild_id, channel_id, self.compile())
-
     def _select_component(self, component: Component):
+        """
+        Points the setters at `component`, refusing ones that hold no value.
+        """
         if not isinstance(component, AnswerComponent):
             raise AssertionError(
                 f"Component {self._selected_as!r} is a {type(component).__name__},"
@@ -271,6 +302,11 @@ class ModalResponseBuilder:
         self._selected = component
 
     def _require(self, *types: type) -> AnswerComponent:
+        """
+        The selected component, asserted to be one of `types`.
+
+        This is what stops `set_text` being used on a dropdown, and so on.
+        """
         if self._selected is None:
             raise AssertionError("No component selected, call select() first")
         if not isinstance(self._selected, types):
@@ -281,6 +317,11 @@ class ModalResponseBuilder:
 
     def _answer(self, component: AnswerComponent, value: str | bool | None = None,
                 values: list[str] | None = None) -> Self:
+        """
+        Records an answer against the component's custom_id.
+
+        Answering the same component twice replaces the earlier answer.
+        """
         self._answers[component.custom_id] = ModalSubmitComponentData(
             type=ComponentType(component.type),
             id=component.id,

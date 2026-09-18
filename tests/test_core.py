@@ -1,8 +1,6 @@
 from discord_self_bot_tester import Bot
 from discord_self_bot_tester.requests import (
     build_reaction,
-    build_app_command,
-    build_interaction,
     InteractionType,
     press_button,
     GuildScheduledEventEntityType,
@@ -16,7 +14,6 @@ from discord_self_bot_tester.assertions import (
 )
 
 import pytest
-from os import getenv
 from datetime import datetime
 import asyncio
 
@@ -121,15 +118,15 @@ def test_button_bot(token: str):
                 .compile()\
                 .assert_request(
                     bot,
-                    build_app_command(
+                    ApplicationCommandBuilder(
                         InteractionType.APP_COMMAND,
+                        "attendance"
+                    ).set_main_command("click_for_attendance")\
+                    .set_arg("event", "f204a530-fa86-4b79-9be2-709904066bd1")\
+                    .compile(
                         TEST_BOT_USER_ID,
                         GUILD_ID,
-                        HELLO_THERE_CHANNEL_ID,
-                        ApplicationCommandBuilder(
-                            "attendance"
-                        ).set_main_command("click_for_attendance")\
-                            .set_arg("event", "f204a530-fa86-4b79-9be2-709904066bd1").compile()
+                        HELLO_THERE_CHANNEL_ID
                     )
                 )
 

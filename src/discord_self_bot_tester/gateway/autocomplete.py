@@ -1,3 +1,8 @@
+"""
+The suggestions discord's autocomplete handler sent back for a partially typed command
+argument.
+"""
+
 from ._base import GatewayEvent
 
 from pydantic import BaseModel
@@ -6,6 +11,12 @@ from typing import TypeAlias
 CommandAutoCompleteChoiceValueType: TypeAlias = float | int | str
 
 class CommandAutoCompleteChoice(BaseModel):
+    """
+    One suggestion: `name` is rendered in the client, `value` is what gets submitted.
+
+    Hashable so that `..assertions.autocomplete` can compare choice sets.
+    """
+
     name: str
     value: CommandAutoCompleteChoiceValueType
 
@@ -13,4 +24,8 @@ class CommandAutoCompleteChoice(BaseModel):
         return hash((self.name, self.value))
 
 class CommandAutoCompleteResponse(GatewayEvent):
+    """
+    A full autocomplete response, queued by the gateway without needing a filter.
+    """
+
     choices: list[CommandAutoCompleteChoice]

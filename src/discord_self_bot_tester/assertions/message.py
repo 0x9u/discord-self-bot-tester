@@ -1,3 +1,16 @@
+"""
+Expectations about a message a request produces.
+
+Two separate jobs live here and are worth keeping apart. The `filter_by_*` builder
+methods decide *which* message the assertion is about, and are matched against the raw
+gateway payload; the `assert_by_*` methods decide whether that message is *correct*,
+and run once it has been found. Getting a filter wrong makes the assertion time out;
+getting an expectation wrong makes it fail with a diff.
+
+Left completely unfiltered, the assertion takes the reply to the interaction it sent,
+matched on the nonce it chose.
+"""
+
 from ..bot import Bot
 
 from ..gateway._base import MessageFilter
@@ -95,6 +108,10 @@ def _describe_dropdown(dropdown: SelectComponent) -> dict[str, object]:
             "disabled": bool(dropdown.disabled)}
 
 class MessageAssertion(Assertion[Request, Message]):
+    """
+    Waits for one message and checks it. Build one with `MessageAssertionBuilder`.
+    """
+
     # what to distingish the message from
     # if None, it will pick the next message in the websocket, or if
     # the request is a app command, it will pick the message replying to the command.
@@ -131,6 +148,12 @@ class MessageAssertion(Assertion[Request, Message]):
         self._check_components(gateway_event)
 
     def _check_components(self, gateway_event: Message):
+        """
+        Checks the message's view against the button and dropdown expectations.
+
+        The whole component tree is flattened first, so a button nested in an action
+        row counts the same as a top level one.
+        """
         components = list(walk_components(gateway_event.components or []))
         buttons = [component for component in components
                    if isinstance(component, ButtonComponent)]
@@ -161,7 +184,8 @@ class MessageAssertion(Assertion[Request, Message]):
                 author_id=None,
                 channel_id=None,
                 nonce_id=req.nonce if isinstance(
-                    req, Interaction) else None
+                    req, Interaction) else None,
+                message_flags=None
             )
         elif self.message_filter.is_followup and isinstance(req, Interaction):
             self.message_filter.nonce_id = req.nonce
@@ -197,6 +221,18 @@ class MessageAssertion(Assertion[Request, Message]):
         return gateway_event
 
 class MessageAssertionBuilder:
+    """
+    Assembles a `MessageAssertion`.
+
+    `filter_by_*` narrows which message counts, `assert_by_*` states what has to be
+    true of it. Calling neither means "the reply to the request I am about to send".
+
+    await MessageAssertionBuilder()\
+        .filter_by_author(BOT_USER_ID)\
+        .assert_by_button("Confirm")\
+        .compile().assert_request(bot, interaction)
+    """
+
     data: MessageAssertion
 
     def __init__(self):
@@ -204,6 +240,9 @@ class MessageAssertionBuilder:
             message_filter=None, content_search_pattern=None, mentions=None, mention_roles=None)
 
     def filter_by_author(self, author_id: int) -> Self:
+        """
+        Only messages sent by this user, normally the bot under test.
+        """
         if self.data.message_filter is None:
             self.data.message_filter = MessageFilter(
                 author_id=str(author_id), channel_id=None, nonce_id=None, message_flags=None)
@@ -213,6 +252,9 @@ class MessageAssertionBuilder:
         return self
 
     def filter_by_channel(self, channel_id: int) -> Self:
+        """
+        Only messages in this channel.
+        """
         if self.data.message_filter is None:
             self.data.message_filter = MessageFilter(
                 author_id=None, channel_id=str(channel_id), nonce_id=None, message_flags=None)
@@ -222,6 +264,11 @@ class MessageAssertionBuilder:
         return self
 
     def filter_by_interaction_from_author(self) -> Self:
+        """
+        Only messages produced by an interaction this account triggered.
+
+        Useful on a busy channel where other people are using the same command.
+        """
         if self.data.message_filter is None:
             self.data.message_filter = MessageFilter(
                 author_id=None, channel_id=None, nonce_id=None, message_flags=None)
@@ -238,6 +285,12 @@ class MessageAssertionBuilder:
         return self
 
     def filter_by_followup_message(self) -> Self:
+        """
+        Ties an explicitly filtered assertion back to the request's own nonce.
+
+        Only needed when a `filter_by_*` has already been set, since the nonce is
+        picked up automatically when no filter was given at all.
+        """
         if self.data.message_filter is None:
             self.data.message_filter = MessageFilter(
                 author_id=None, channel_id=None, nonce_id=None, message_flags=None)
@@ -245,6 +298,9 @@ class MessageAssertionBuilder:
         return self
     
     def filter_by_message_flags(self, flags: int) -> Self:
+        """
+        Only messages whose flags are exactly `flags`, e.g. 64 for an ephemeral reply.
+        """
         if self.data.message_filter is None:
                 self.data.message_filter = MessageFilter(
                     author_id=None, channel_id=None, nonce_id=None, message_flags=None)
@@ -252,14 +308,23 @@ class MessageAssertionBuilder:
         return self
 
     def assert_by_message_content(self, pattern: str) -> Self:
+        """
+        The content has to match this regex, anchored at the start (`re.match`).
+        """
         self.data.content_search_pattern = pattern
         return self
 
     def assert_by_mentions(self, mentions: list[int]) -> Self:
+        """
+        These have to be exactly the users the message mentions, in order.
+        """
         self.data.mentions = list(map(str, mentions))
         return self
 
     def assert_by_mention_roles(self, mention_roles: list[int]) -> Self:
+        """
+        These have to be exactly the roles the message mentions, in order.
+        """
         self.data.mention_roles = list(map(str, mention_roles))
         return self
 
@@ -308,4 +373,7 @@ class MessageAssertionBuilder:
         return self
 
     def compile(self) -> MessageAssertion:
+        """
+        The finished assertion.
+        """
         return self.data

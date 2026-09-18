@@ -1,3 +1,17 @@
+"""
+Interacting with the view on a message that has already been received.
+
+The point of this module is that a `Message` handed back by an assertion is enough on
+its own: the channel, guild, application, message id and flags an interaction needs are
+all read off it, so a test presses a button by the label discord renders on it and
+nothing else.
+
+Every helper asserts against the message it was given, so a renamed button, a disabled
+one, a link button that sends no interaction, or a selection outside a menu's
+min/max bounds fails here - with the available alternatives listed - rather than as an
+opaque rejection from discord.
+"""
+
 from ..gateway.component import (
     ButtonComponent,
     SelectComponent,
@@ -11,62 +25,20 @@ from .commands import (
     Interaction,
     InteractionType,
     MessageComponent,
-    build_interaction,
+    _build_interaction,
 )
 
-
-def buttons_of(message: Message) -> list[ButtonComponent]:
+def _build(message: Message, data: MessageComponent) -> Interaction:
     """
-    Every button on the message, in the order discord laid them out.
-    """
-    return [component for component in walk_components(message.components or [])
-            if isinstance(component, ButtonComponent)]
+    A MESSAGE_COMPONENT interaction aimed at `message`, with its ids filled in.
+    """    
+    # if guild_id is None then its DM
+    guild_id = int(message.guild_id) if message.guild_id is not None else None
 
-def dropdowns_of(message: Message) -> list[SelectComponent]:
-    """
-    Every select menu on the message, in the order discord laid them out.
-    """
-    return [component for component in walk_components(message.components or [])
-            if isinstance(component, SelectComponent)]
+    assert message.author is not None or message.application_id is not None
+    application_id = message.application_id or message.author.id 
 
-
-def _describe_buttons(message: Message) -> list[str]:
-    return [button.label if button.label is not None else f"<{button.custom_id}>"
-            for button in buttons_of(message)]
-
-def _describe_dropdowns(message: Message) -> list[str]:
-    return [dropdown.placeholder if dropdown.placeholder is not None else dropdown.custom_id
-            for dropdown in dropdowns_of(message)]
-
-def _resolve_ids(message: Message, guild_id: int | None,
-                 application_id: int | None) -> tuple[int, int]:
-    """
-    Fills in the ids the interaction needs off the message that carried the component.
-    """
-    if guild_id is None:
-        if message.guild_id is None:
-            raise AssertionError(
-                f"Message {message.id} carried no guild_id, pass one explicitly")
-        guild_id = int(message.guild_id)
-
-    if application_id is None:
-        # a bot's user id is its application id, so the message author will do when
-        # discord did not hand us an application_id outright
-        resolved = message.application_id
-        if resolved is None and message.author is not None:
-            resolved = message.author.id
-        if resolved is None:
-            raise AssertionError(
-                f"Message {message.id} carried no application_id, pass one explicitly")
-        application_id = int(resolved)
-
-    return guild_id, application_id
-
-def _build(message: Message, data: MessageComponent, guild_id: int | None,
-           application_id: int | None) -> Interaction:
-    guild_id, application_id = _resolve_ids(message, guild_id, application_id)
-
-    return build_interaction(
+    return _build_interaction(
         InteractionType.MESSAGE_COMPONENT,
         application_id,
         guild_id,
@@ -75,7 +47,6 @@ def _build(message: Message, data: MessageComponent, guild_id: int | None,
         message_id=message.id,
         message_flags=message.flags
     )
-
 
 def find_button(message: Message, label: str | None = None,
                 custom_id: str | None = None) -> ButtonComponent:
@@ -87,15 +58,21 @@ def find_button(message: Message, label: str | None = None,
     if label is None and custom_id is None:
         raise AssertionError("find_button needs a label or a custom_id")
 
-    matched = [button for button in buttons_of(message)
+    buttons = [component for component in walk_components(message.components or [])
+                if isinstance(component, ButtonComponent)]
+
+    matched = [button for button in buttons
                if (label is None or button.label == label)
                and (custom_id is None or button.custom_id == custom_id)]
 
     if len(matched) == 0:
         wanted = label if label is not None else custom_id
+        
+        repr_buttons = [button.label or f"<{button.custom_id}>" for button in buttons]
+        
         raise AssertionError(
             f"Message {message.id} has no button {wanted!r}"
-            f"\nAvailable buttons: {_describe_buttons(message)}")
+            f"\nAvailable buttons: {repr_buttons}")
 
     button = matched[0]
 
@@ -114,16 +91,19 @@ def find_dropdown(message: Message, dropdown: str | None = None) -> SelectCompon
 
     `dropdown` may be left out when the message only carries one.
     """
-    dropdowns = dropdowns_of(message)
+    dropdowns = [component for component in walk_components(message.components or [])
+            if isinstance(component, SelectComponent)]
 
     if len(dropdowns) == 0:
         raise AssertionError(f"Message {message.id} has no dropdowns")
+    
+    repr_dropdowns = [dropdown.placeholder or dropdown.custom_id for dropdown in dropdowns]
 
     if dropdown is None:
         if len(dropdowns) != 1:
             raise AssertionError(
                 f"Message {message.id} has {len(dropdowns)} dropdowns, say which one"
-                f"\nAvailable dropdowns: {_describe_dropdowns(message)}")
+                f"\nAvailable dropdowns: {repr_dropdowns}")
         matched = dropdowns
     else:
         matched = [candidate for candidate in dropdowns
@@ -132,7 +112,7 @@ def find_dropdown(message: Message, dropdown: str | None = None) -> SelectCompon
     if len(matched) == 0:
         raise AssertionError(
             f"Message {message.id} has no dropdown {dropdown!r}"
-            f"\nAvailable dropdowns: {_describe_dropdowns(message)}")
+            f"\nAvailable dropdowns: {repr_dropdowns}")
 
     selected = matched[0]
 
@@ -141,9 +121,7 @@ def find_dropdown(message: Message, dropdown: str | None = None) -> SelectCompon
 
     return selected
 
-
-def press_button(message: Message, label: str | None = None, custom_id: str | None = None,
-                 guild_id: int | None = None, application_id: int | None = None) -> Interaction:
+def press_button(message: Message, label: str | None = None, custom_id: str | None = None) -> Interaction:
     """
     Presses a button on `message` by the label discord renders on it.
 
@@ -161,13 +139,10 @@ def press_button(message: Message, label: str | None = None, custom_id: str | No
         MessageComponent(
             custom_id=button.custom_id,
             component_type=ComponentType.BUTTON
-        ),
-        guild_id,
-        application_id
+        )
     )
 
-def select_dropdown(message: Message, *option_labels: str, dropdown: str | None = None,
-                    guild_id: int | None = None, application_id: int | None = None) -> Interaction:
+def select_dropdown(message: Message, *option_labels: str, dropdown: str | None = None) -> Interaction:
     """
     Picks options out of a string select on `message` by the labels it renders.
 
@@ -193,10 +168,9 @@ def select_dropdown(message: Message, *option_labels: str, dropdown: str | None 
         values.append(matched[0])
 
     return select_dropdown_values(
-        message, *values, dropdown=dropdown, guild_id=guild_id, application_id=application_id)
+        message, *values, dropdown=dropdown)
 
-def select_dropdown_values(message: Message, *values: str, dropdown: str | None = None,
-                           guild_id: int | None = None, application_id: int | None = None) -> Interaction:
+def select_dropdown_values(message: Message, *values: str, dropdown: str | None = None) -> Interaction:
     """
     Picks raw values out of a select menu on `message`.
 
@@ -214,7 +188,6 @@ def select_dropdown_values(message: Message, *values: str, dropdown: str | None 
                 f"Dropdown {named!r} has no option(s) {unknown}"
                 f"\nAvailable values: {allowed}")
 
-    # discord defaults both to 1 when it leaves them out
     min_values = selected.min_values if selected.min_values is not None else 1
     max_values = selected.max_values if selected.max_values is not None else 1
 
@@ -231,7 +204,5 @@ def select_dropdown_values(message: Message, *values: str, dropdown: str | None 
             custom_id=selected.custom_id,
             component_type=ComponentType(selected.type),
             values=list(values)
-        ),
-        guild_id,
-        application_id
+        )
     )
