@@ -20,7 +20,7 @@ from ..gateway.component import (
     SelectComponent,
     walk_components,
 )
-from ..gateway.message import Message
+from ..gateway.message import MessageAuthor, Message
 from ..requests._base import Request
 from ..requests.commands import Interaction
 
@@ -137,7 +137,7 @@ class MessageAssertion(Assertion[Request, Message]):
             raise AssertionError(
                 f"Mismatch\nGot: {gateway_event.content}\nMust match: {content_search_pattern}")
 
-        if self.mentions is not None and gateway_event.mentions != self.mentions:
+        if self.mentions is not None and all(lambda x: x.id in self.mentions, gateway_event.mentions):
             raise AssertionError(
                 f"Mismatch\nGot: {gateway_event.mentions}\nMust match: {self.mentions}")
 
@@ -154,6 +154,7 @@ class MessageAssertion(Assertion[Request, Message]):
         The whole component tree is flattened first, so a button nested in an action
         row counts the same as a top level one.
         """
+        print(f"message components: {gateway_event.components!r}")
         components = list(walk_components(gateway_event.components or []))
         buttons = [component for component in components
                    if isinstance(component, ButtonComponent)]
@@ -165,7 +166,7 @@ class MessageAssertion(Assertion[Request, Message]):
                 raise AssertionError(
                     f"Mismatch\nGot buttons: {[_describe_button(button) for button in buttons]}"
                     f"\nMust include a button: {expectation}")
-
+        
         if self.button_labels is not None:
             labels = [button.label for button in buttons]
             if labels != self.button_labels:

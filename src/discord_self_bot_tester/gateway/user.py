@@ -1,8 +1,5 @@
 """
 Discord's user object.
-
-The full profile shape. Message payloads carry a trimmed down author instead, modelled
-separately as `..gateway.message.MessageAuthor`.
 """
 
 from pydantic import BaseModel

@@ -11,7 +11,7 @@ same models cover both; `..requests.commands.ComponentType` is the matching enum
 the payloads we send back.
 """
 
-from ..shared import Emoji
+from .emoji import Emoji
 
 from collections.abc import Iterator
 from enum import Enum
@@ -55,7 +55,7 @@ class ButtonComponent(BaseModel):
     id: int | None = None
     style: ButtonStyle
     label: str | None = None
-    emoji: str | None = None
+    emoji: Emoji | None = None
     # what we actually want to use, absent on LINK and PREMIUM buttons
     custom_id: str | None = None
     sku_id: str | None = None

@@ -34,7 +34,7 @@ class AutoCompleteAssertion(Assertion[Request, CommandAutoCompleteResponse]):
                 raise AssertionError(
                     f"Mismatch\nGot: {gateway_event.choices}\nMust match: {self.choices}")
         else:
-            if set(self.choices) > set(gateway_event.choices):  # checks if not subset
+            if not set(self.choices) <= set(gateway_event.choices):  # checks if not subset
                 raise AssertionError(
                     f"Mismatch\nGot: {gateway_event.choices}\nMust include: {self.choices}")
 

@@ -25,7 +25,6 @@ import aiohttp
 import random
 import asyncio
 import logging
-from collections import defaultdict
 
 from typing import cast, Any, TYPE_CHECKING
 
@@ -73,6 +72,7 @@ class Gateway:
     One per `Bot`, created in its constructor and started by `Bot.run`.
     """
 
+    _ws: aiohttp.ClientWebSocketResponse | None = None
     _assert_filter: Filter | None = None
     _sleep_delay_max: int = 2  # in secs
     _gateway_queue: asyncio.Queue[GatewayEvent]
@@ -80,15 +80,16 @@ class Gateway:
     
     bot: "Bot"
     
-    # NOTE: this gets removed in Interaction class
+    # Registered by `Interaction.request` before it posts, and discarded by it in a
+    # `finally` - so an entry existing here means someone is still waiting on it.
     _interaction_status_events: dict[str, asyncio.Event]
     _interaction_status_data: dict[str, bool]
-    
-    def __init__(self, bot: "Bot"):        
+
+    def __init__(self, bot: "Bot"):
         self._gateway_queue = asyncio.Queue()
         self._ready_cond = asyncio.Condition()
         self.bot = bot
-        self._interaction_status_events = defaultdict(asyncio.Event)
+        self._interaction_status_events = {}
         self._interaction_status_data = {}
 
     # Required to await for session_id, etc from READY payload
@@ -166,10 +167,10 @@ class Gateway:
                     # https://docs.discord.food/gateway/opcodes-and-close-codes
 
                     async for gateway_event in _ws:
+                        print(f"Data {gateway_event}")
                         if gateway_event.type == aiohttp.WSMsgType.TEXT:
                             data: dict[str, Any] = gateway_event.json()
                             logging.debug(f"Gateway event: {data}")
-                            print(f"DATA {data}")
                             opcode: int = data["op"]
                             if opcode == 9:  # invalid session
                                 # todo: capture error, make sure its not silent
@@ -187,8 +188,10 @@ class Gateway:
                                 match t:
                                     case "INTERACTION_SUCCESS" | "INTERACTION_FAILURE":
                                         nonce = data["d"]["nonce"]
-                                        self._interaction_status_events[nonce].set()
-                                        self._interaction_status_data[nonce] = t == "INTERACTION_SUCCESS"                                        
+                                        status_event = self._interaction_status_events.get(nonce)
+                                        if status_event is not None:
+                                            self._interaction_status_data[nonce] = t == "INTERACTION_SUCCESS"
+                                            status_event.set()
                                     case "READY":
                                         data = data["d"]
                                         self.bot.user_id = data["user"]["id"]

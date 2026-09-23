@@ -108,29 +108,3 @@ class ModalFilter(Filter):
             return Modal.model_validate(modal_data)
         else:
             return None
-
-# NOTE: dead copies, `ws` defines and uses its own. Kept only so that anything
-# importing them from here keeps working.
-PROPERTIES = {  # please don't steal my data - oliver
-    "os": "Windows",
-    "browser": "Firefox",
-    "device": "",
-    "system_locale": "en-US",
-    "has_client_mods": False,
-    "browser_USER_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:150.0) Gecko/20100101 Firefox/150.0",
-    "browser_version": "150.0",
-    "os_version": "10",
-    "referrer": "https://www.google.com/",
-    "referring_domain": "www.google.com",
-    "search_engine": "google",
-    "referrer_current": "",
-    "referring_domain_current": "",
-    "release_channel": "stable",
-    "client_build_number": 546605,
-    "client_event_source": None,
-    "client_launch_id": "203c3bc2-e787-4df9-9c3c-39a0617c12e5",
-    "is_fast_connect": True,
-    "installation_id": "1472435156357877996.NPzylawn6sQb7uQQxXe6GKH_H4Q"
-}
-
-WEBSOCKET_URL = "wss://gateway.discord.gg/?encoding=json&v=9"

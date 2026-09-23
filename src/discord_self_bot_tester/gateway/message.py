@@ -40,7 +40,7 @@ class Message(GatewayEvent):
     # only sent on messages discord's own interactions produced
     application_id: str | None = None
     flags: int | None = None
-    content: str
-    mentions: list[str]
-    mention_roles: list[str]
+    content: str = ""
+    mentions: list[MessageAuthor] = []
+    mention_roles: list[str] = []
     components: list[Component] | None = None

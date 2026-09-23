@@ -27,7 +27,7 @@ import asyncio
 from enum import Enum
 from typing import TypeAlias, Literal
 
-INTERACTION_TIMEOUT = 5000
+INTERACTION_TIMEOUT = 5
 
 INTERACTIONS_URL = "https://discord.com/api/v9/interactions"
 ACK_URL = "https://discord.com/api/v9/channels/{}/messages/{}/ack"
@@ -172,10 +172,13 @@ class Interaction(Request):
     INTERACTION_SUCCESS dispatch, which is how the assertions know which reply is
     theirs.
     """
+    model_config = ConfigDict(
+        exclude_none=True
+    )
 
     type: InteractionType
     application_id: str
-    guild_id: str
+    guild_id: str | None
     channel_id: str
     nonce: str
     data: InteractionDataType
@@ -199,24 +202,35 @@ class Interaction(Request):
             self.session_id = bot.session_id
          
         json = self.model_dump(mode="json", exclude_none=True)
-         
-        res = await session.post(INTERACTIONS_URL, json=json)
-        if res.status != 204:
-            res_data = await res.text()
-            raise SelfBotRequestError("Request failed: " + str(res_data), res.status)
 
-        res = await session.post(ACK_URL.format(self.channel_id, self.nonce), json=ACK_BODY)
-        if res.status != 200:
-            res_data = await res.text()
-            raise SelfBotRequestError("Request failed: " + str(res_data), res.status)
+        gateway = bot._gateway
 
-        await asyncio.wait_for(asyncio.shield(bot._gateway._interaction_status_events[self.nonce].wait()), timeout=INTERACTION_TIMEOUT)
-        
-        print("WOW")
-        
-        del bot._gateway._interaction_status_events[self.nonce]
-        status = bot._gateway._interaction_status_data.pop(self.nonce)
-        
+        # registered before anything is sent, so a status dispatch that beats us to the
+        # wait below is still recorded rather than missed
+        status_event = asyncio.Event()
+        gateway._interaction_status_events[self.nonce] = status_event
+
+        try:
+            res = await session.post(INTERACTIONS_URL, json=json)
+            if res.status != 204:
+                res_data = await res.text()
+                raise SelfBotRequestError("Request failed: " + str(res_data), res.status)
+
+            res = await session.post(ACK_URL.format(self.channel_id, self.nonce), json=ACK_BODY)
+            if res.status != 200:
+                res_data = await res.text()
+                raise SelfBotRequestError("Request failed: " + str(res_data), res.status)
+
+            await asyncio.wait_for(status_event.wait(), timeout=INTERACTION_TIMEOUT)
+
+            status = gateway._interaction_status_data[self.nonce]
+        finally:
+            # every exit discards both entries, the timeout and the failed ack included:
+            # discord dispatches a status for any interaction it accepted, whether or not
+            # we are still listening for it
+            gateway._interaction_status_events.pop(self.nonce, None)
+            gateway._interaction_status_data.pop(self.nonce, None)
+
         if not status:
             raise InteractionFailed
     
@@ -337,7 +351,7 @@ class ApplicationCommandBuilder:
             application_id,
             guild_id,
             channel_id,
-            self.main_command
+            self.data
         )
 
 def submit_modal(application_id: int, guild_id: int, channel_id: int, data: ModalSubmitData) -> Interaction:
