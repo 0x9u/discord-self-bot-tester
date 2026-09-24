@@ -267,6 +267,8 @@ class ModalResponseBuilder:
         that gained a field fails here rather than being submitted incomplete.
         """
         
+        # https://docs.discord.food/interactions/receiving-and-responding#modal-submit-data-structure
+        
         if application_id is None:
             if self.modal.application_id is None:
                 raise AssertionError(
