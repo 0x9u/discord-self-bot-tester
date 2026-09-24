@@ -190,6 +190,10 @@ class ModalResponseBuilder:
     def set_values(self, *values: str) -> Self:
         """
         Answers a select menu, a checkbox group or a file upload with raw values.
+        
+        Note that if one wants to attach files to an `FileUpload` component,
+        they will have upload the file first using `Attachment.send(bot)` and then use
+        attachment id (obtained via `Attachment.get_attachment_id()`) as the value.
         """
         component = self._require(SelectComponent, CheckboxGroup, FileUpload)
 

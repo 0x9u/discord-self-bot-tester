@@ -45,6 +45,7 @@ from .events import (
     ScheduledEventBuilder
 )
 from .reactions import Reaction, build_reaction
+from .attachments import Attachment, build_attachment
 
 __all__ = [
     "Request",
@@ -77,5 +78,7 @@ __all__ = [
     "ScheduledEvent",
     "ScheduledEventBuilder",
     "Reaction",
-    "build_reaction"
+    "build_reaction",
+    "Attachment",
+    "build_attachment"
 ]
