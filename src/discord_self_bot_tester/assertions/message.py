@@ -18,9 +18,10 @@ from ..gateway.component import (
     ButtonComponent,
     ButtonStyle,
     SelectComponent,
+    StringSelectComponent,
     walk_components,
 )
-from ..gateway.message import MessageAuthor, Message
+from ..gateway.message import Message
 from ..requests._base import Request
 from ..requests.commands import Interaction
 
@@ -79,9 +80,11 @@ class DropdownExpectation(BaseModel):
         if self.placeholder is not None and self.placeholder != dropdown.placeholder:
             return False
         if self.option_labels is not None and \
+                isinstance(dropdown, StringSelectComponent) and \
                 self.option_labels != [option.label for option in dropdown.options]:
             return False
         if self.option_values is not None and \
+                isinstance(dropdown, StringSelectComponent) and \
                 self.option_values != [option.value for option in dropdown.options]:
             return False
         if self.disabled is not None and self.disabled != bool(dropdown.disabled):
@@ -104,7 +107,8 @@ def _describe_button(button: ButtonComponent) -> dict[str, object]:
 
 def _describe_dropdown(dropdown: SelectComponent) -> dict[str, object]:
     return {"custom_id": dropdown.custom_id, "placeholder": dropdown.placeholder,
-            "option_labels": [option.label for option in dropdown.options],
+            "option_labels": [option.label for option in dropdown.options]
+                if isinstance(dropdown, StringSelectComponent) else [],
             "disabled": bool(dropdown.disabled)}
 
 class MessageAssertion(Assertion[Request, Message]):
@@ -117,17 +121,14 @@ class MessageAssertion(Assertion[Request, Message]):
     # the request is a app command, it will pick the message replying to the command.
     message_filter: MessageFilter | None
 
-    # if no assert conditions are set, it will just assert the next message being sent next that matches these filters
-
     content_search_pattern: str | None
     mentions: list[str] | None  # list of user ids
     mention_roles: list[str] | None
     
-    # each one has to be matched by at least one button on the message
+    # COMPONENTS
+        
     buttons: list[ButtonExpectation] = []
-    # the labels of every button on the message, exactly and in order
     button_labels: list[str | None] | None = None
-    # each one has to be matched by at least one select menu on the message
     dropdowns: list[DropdownExpectation] = []
 
     def _check(self, gateway_event: Message):
@@ -137,7 +138,7 @@ class MessageAssertion(Assertion[Request, Message]):
             raise AssertionError(
                 f"Mismatch\nGot: {gateway_event.content}\nMust match: {content_search_pattern}")
 
-        if self.mentions is not None and all(lambda x: x.id in self.mentions, gateway_event.mentions):
+        if self.mentions is not None and list(map(lambda x: x.id, gateway_event.mentions)) == self.mentions:
             raise AssertionError(
                 f"Mismatch\nGot: {gateway_event.mentions}\nMust match: {self.mentions}")
 
@@ -154,7 +155,6 @@ class MessageAssertion(Assertion[Request, Message]):
         The whole component tree is flattened first, so a button nested in an action
         row counts the same as a top level one.
         """
-        print(f"message components: {gateway_event.components!r}")
         components = list(walk_components(gateway_event.components or []))
         buttons = [component for component in components
                    if isinstance(component, ButtonComponent)]
@@ -277,8 +277,12 @@ class MessageAssertionBuilder:
         return self
 
     
-    # NOTE: use this if the command is deferred
     def filter_by_message_update(self) -> Self:
+        """
+        Only messages that are updated.
+        
+        Useful when a command defers the response.
+        """
         if self.data.message_filter is None:
             self.data.message_filter = MessageFilter(
                 author_id=None, channel_id=None, nonce_id=None, message_flags=None)
@@ -375,6 +379,6 @@ class MessageAssertionBuilder:
 
     def compile(self) -> MessageAssertion:
         """
-        The finished assertion.
+        Retrieve the assertion.
         """
         return self.data

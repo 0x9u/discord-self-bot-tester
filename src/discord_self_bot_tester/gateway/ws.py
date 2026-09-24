@@ -167,7 +167,6 @@ class Gateway:
                     # https://docs.discord.food/gateway/opcodes-and-close-codes
 
                     async for gateway_event in _ws:
-                        print(f"Data {gateway_event}")
                         if gateway_event.type == aiohttp.WSMsgType.TEXT:
                             data: dict[str, Any] = gateway_event.json()
                             logging.debug(f"Gateway event: {data}")

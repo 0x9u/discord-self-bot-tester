@@ -34,7 +34,13 @@ class ModalAssertion(Assertion[Interaction, Modal]):
 
     
     async def assert_request(self, bot: Bot, req: Interaction, deadline: int = 5) -> Modal:
-        self.modal_filter.nonce = req.nonce
+        if self.modal_filter is None:
+            self.modal_filter = ModalFilter(
+                nonce = req.nonce
+            )
+        else:
+            self.modal_filter.nonce = req.nonce
+        
         bot._gateway._assert_filter = self.modal_filter
         
         await req.send(bot)

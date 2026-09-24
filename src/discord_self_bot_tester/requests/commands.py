@@ -84,7 +84,7 @@ class ComponentType(Enum):
 	"""
 	Discord's component type numbers, as sent back in an interaction payload.
 
-	Mirrors the wire `type` on the `..gateway.component` models, so a received
+	Mirrors `type` on the `..gateway.component` models, so a received
 	component can be echoed back with `ComponentType(component.type)`.
 	"""
 
@@ -172,9 +172,6 @@ class Interaction(Request):
     INTERACTION_SUCCESS dispatch, which is how the assertions know which reply is
     theirs.
     """
-    model_config = ConfigDict(
-        exclude_none=True
-    )
 
     type: InteractionType
     application_id: str
@@ -259,15 +256,15 @@ class Interaction(Request):
         self.data.id = command_id
         self.session_id = bot.session_id       
 
-def _build_interaction(type: InteractionType, application_id: int, guild_id: int, channel_id: int, data: InteractionDataType,
+def _build_interaction(type: InteractionType, application_id: int, guild_id: int | None, channel_id: int, data: InteractionDataType,
                       message_id: str | None = None, message_flags: int | None = None) -> Interaction:
     """
-    An `Interaction` with a freshly chosen nonce, ids stringified for the wire.
+    An `Interaction` with a randomly generated nonce.
     """
     return Interaction(
         type=type,
         application_id=str(application_id),
-        guild_id=str(guild_id),
+        guild_id=str(guild_id) if guild_id is not None else None,
         channel_id=str(channel_id),
         nonce=str(random.randint(
             100_000_000_000_000_0000, 900_000_000_000_000_0000)),
@@ -353,6 +350,3 @@ class ApplicationCommandBuilder:
             channel_id,
             self.data
         )
-
-def submit_modal(application_id: int, guild_id: int, channel_id: int, data: ModalSubmitData) -> Interaction:
-    return 

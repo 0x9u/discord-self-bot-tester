@@ -17,9 +17,8 @@ class GatewayEvent(BaseModel):
     """
     Base class for anything the gateway hands back to a test.
 
-    Subclassed by the payload models (`Message`, `Modal`,
-    `CommandAutoCompleteResponse`) and by `GatewayException`, which is queued in place
-    of an event when the socket dies so a waiting assertion fails instead of hanging.
+    Note that this is subclassed by `GatewayException` as its queued in place of an event
+    when the gateway dies to ensure any waiting assertion fails instead of hanging.     
     """
     pass
 
@@ -36,11 +35,10 @@ class Filter(BaseModel, ABC):
     def matches(self, user_id: str, data: dict[str, Any]) -> GatewayEvent | None:
         """
         The event built out of `data`, or None when this payload is not the one.
-
-        `user_id` is the self-bot's own id, needed by filters that care who triggered
-        the interaction behind the message. `data` is the whole dispatch envelope, so
-        implementations read the event name off `data["t"]` and the body off
-        `data["d"]`.
+        
+        `user_id` is the self-bot's own id
+        `data` is the whole gateway event.
+        https://docs.discord.com/developers/events/gateway
         """
         raise NotImplementedError
 
@@ -48,13 +46,13 @@ class MessageFilter(Filter):
     """
     Picks a message out of the gateway on whichever fields are set.
 
-    Every field left None is simply not checked, so a filter with nothing set claims
-    the next message of `message_payload_type` that arrives.
+    Note that one can retrieve the next message received in the gateway if every field is left None.
     """
 
     author_id: str | None
     channel_id: str | None
-    nonce_id: str | None # only used if message_filter is None
+    # only used if message_filter is None
+    nonce_id: str | None
     # used to check whether to set nonce_id or not, when message_filter is None this is default to True
     is_followup: bool = False
 

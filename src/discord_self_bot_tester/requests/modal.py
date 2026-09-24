@@ -12,6 +12,8 @@ component type, an unknown option, a value outside the length or count bounds, o
 required field left blank all fail before anything is sent.
 """
 
+from types import UnionType
+
 from ..gateway.component import (
     ActionRowComponent,
     Checkbox,
@@ -24,6 +26,7 @@ from ..gateway.component import (
     StringSelectComponent,
     TextInputComponent,
     child_components,
+    walk_components,
 )
 from ..gateway.modal import Modal
 
@@ -36,7 +39,7 @@ from .commands import (
     _build_interaction
 )
 
-from typing import Self, TypeAlias
+from typing import Self, TypeAlias, cast
 
 # components the user can put an answer into
 AnswerComponent: TypeAlias = (
@@ -48,14 +51,15 @@ AnswerComponent: TypeAlias = (
     | Checkbox
 )
 
-def _find_label(components: list[Component], label: str) -> LabelComponent | None:
+def _find_label_or_text_input(components: list[Component], label: str) -> TextInputComponent | LabelComponent | None:
     """
     Depth first search for the label with this exact caption.
     """
     for component in components:
-        if isinstance(component, LabelComponent) and component.label == label:
+        if (isinstance(component, LabelComponent) or \
+            isinstance(component, TextInputComponent)) and component.label == label:
             return component
-        found = _find_label(child_components(component), label)
+        found = _find_label_or_text_input(child_components(component), label)
         if found is not None:
             return found
     return None
@@ -138,10 +142,11 @@ class ModalResponseBuilder:
             raise AssertionError("select needs at least one label")
 
         scope = self.modal.components
-        found: LabelComponent | None = None
+        found: LabelComponent | TextInputComponent | None = None
 
         for depth, label in enumerate(labels):
-            found = _find_label(scope, label)
+            print(f"(DEPTH: {depth}) components: {scope!r}")
+            found = _find_label_or_text_input(scope, label)
             if found is None:
                 where = "" if depth == 0 else f" under {' > '.join(labels[:depth])!r}"
                 raise AssertionError(
@@ -151,9 +156,9 @@ class ModalResponseBuilder:
 
         assert found is not None
         self._selected_as = " > ".join(labels)
-        self._select_component(found.component)
+        self._select_component(found if isinstance(found, TextInputComponent) else found.component)
         return self
-
+    
     def select_by_custom_id(self, custom_id: str) -> Self:
         """
         Selects a component by its developer defined id instead of its label.
@@ -170,7 +175,7 @@ class ModalResponseBuilder:
 
     def set_text(self, value: str) -> Self:
         component = self._require(TextInputComponent)
-
+        
         if component.min_length is not None and len(value) < component.min_length:
             raise AssertionError(
                 f"Component {self._selected_as!r} needs at least {component.min_length}"
@@ -301,7 +306,7 @@ class ModalResponseBuilder:
                 " which holds no value")
         self._selected = component
 
-    def _require(self, *types: type) -> AnswerComponent:
+    def _require[T](self, *types: type[T] | UnionType) -> T:
         """
         The selected component, asserted to be one of `types`.
 
@@ -309,11 +314,22 @@ class ModalResponseBuilder:
         """
         if self._selected is None:
             raise AssertionError("No component selected, call select() first")
-        if not isinstance(self._selected, types):
+        
+        flat_types: list[type] = []
+        for t in types:
+            if isinstance(t, UnionType):
+                flat_types.extend(t.__args__)
+            else:
+                flat_types.append(t)
+        
+        flat_types_tuple = tuple(flat_types)
+        
+        if not isinstance(self._selected, flat_types_tuple):
             raise AssertionError(
                 f"Component {self._selected_as!r} is a {type(self._selected).__name__},"
-                f" expected one of: {[expected.__name__ for expected in types]}")
-        return self._selected
+                f" expected one of: {[expected.__name__ for expected in flat_types_tuple]}")
+        
+        return cast(T, self._selected)
 
     def _answer(self, component: AnswerComponent, value: str | bool | None = None,
                 values: list[str] | None = None) -> Self:

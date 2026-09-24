@@ -13,8 +13,6 @@ CommandAutoCompleteChoiceValueType: TypeAlias = float | int | str
 class CommandAutoCompleteChoice(BaseModel):
     """
     One suggestion: `name` is rendered in the client, `value` is what gets submitted.
-
-    Hashable so that `..assertions.autocomplete` can compare choice sets.
     """
 
     name: str

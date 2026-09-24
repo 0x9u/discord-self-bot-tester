@@ -35,13 +35,18 @@ def _build(message: Message, data: MessageComponent) -> Interaction:
     # if guild_id is None then its DM
     guild_id = int(message.guild_id) if message.guild_id is not None else None
 
-    assert message.author is not None or message.application_id is not None
-    application_id = message.application_id or message.author.id 
+    application_id : str
+    if message.application_id is not None:
+        application_id = message.application_id
+    elif message.author is not None:
+        application_id = message.author.id
+    else:
+        raise AssertionError("Neither message.author nor message.application_id is not None")
 
     return _build_interaction(
         InteractionType.MESSAGE_COMPONENT,
-        application_id,
-        guild_id,
+        int(application_id),
+        int(guild_id) if guild_id is not None else None,
         int(message.channel_id),
         data,
         message_id=message.id,
@@ -133,6 +138,8 @@ def press_button(message: Message, label: str | None = None, custom_id: str | No
         .assert_request(bot, press_button(msg, "Confirm"))
     """
     button = find_button(message, label, custom_id)
+    
+    assert button.custom_id is not None
 
     return _build(
         message,

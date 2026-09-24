@@ -1,9 +1,8 @@
 """
 Discord's message and modal component tree.
 
-One model per component type, united into the `Component` tagged union that pydantic
-discriminates on the wire `type` number. The union is recursive - action rows and
-labels hold further components - so `child_components` and `walk_components` exist to
+Each component has its own model, descriminated by its `type` number. Note that components
+can be recursive (see `ActionRowComponent` and `LabelComponent`) so `child_components` and `walk_components` exist to
 traverse it without every caller re-learning which types nest.
 
 The numbering is discord's own and is shared between message views and modals, so the
@@ -102,60 +101,67 @@ class SelectOption(BaseModel):
 	emoji: Emoji | None = None
 	default: bool | None = None
 
-class SelectComponent(BaseModel):
+class SelectComponentBase(BaseModel):
 	"""
 	Shared shape of every select menu.
-
-	Not a `Component` member itself - only the concrete subclasses are, each pinning
-	the wire `type` - but it is what the helpers isinstance against when they want "any
-	dropdown". Only `StringSelectComponent` populates `options`: the user, role,
-	mentionable and channel menus are filled from discord's own pickers, so their
-	values are snowflakes that never appear in the payload.
+    
+    Contains the attributes that are shared among its subclasses, e.g. min_values and max_values.
+    Note this is not a `Component`.
 	"""
 
 	id: int | None = None
 	custom_id: str
-	options: list[SelectOption]
+	
 	placeholder: str | None = None
 	min_values: int | None = None
 	max_values: int | None = None
 	required: bool | None = None
 	disabled: bool | None = None
 
-class StringSelectComponent(SelectComponent):
+class StringSelectComponent(SelectComponentBase):
     """
     A menu of developer defined options. The only select whose `options` are populated.
     """
 
     type: Literal[3]
+    options: list[SelectOption]
 
-class UserSelectComponent(SelectComponent):
+class UserSelectComponent(SelectComponentBase):
     """
     A user picker. Submits user ids, so use `select_dropdown_values` on it.
     """
 
     type: Literal[5]
 
-class RoleSelectComponent(SelectComponent):
+class RoleSelectComponent(SelectComponentBase):
     """
     A role picker. Submits role ids, so use `select_dropdown_values` on it.
     """
 
     type: Literal[6]
 
-class MentionableSelectComponent(SelectComponent):
+class MentionableSelectComponent(SelectComponentBase):
     """
     A picker over both users and roles. Submits ids of either kind.
     """
 
     type: Literal[7]
 
-class ChannelSelectComponent(SelectComponent):
+class ChannelSelectComponent(SelectComponentBase):
     """
     A channel picker. Submits channel ids, so use `select_dropdown_values` on it.
     """
 
     type: Literal[8]
+
+SelectComponent : TypeAlias = (
+    StringSelectComponent
+    | UserSelectComponent
+    | RoleSelectComponent
+    | MentionableSelectComponent
+    | MentionableSelectComponent
+    | ChannelSelectComponent
+)
 
 class TextDisplayComponent(BaseModel):
     """
