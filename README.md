@@ -12,7 +12,7 @@ Needs python 3.11 or newer.
 ## Setup
 
 - Create a `Bot` with a user token
-- Run it with `bot.run()`
+- Run it with `bot.run()`. This has to be called inside a running event loop, and every test has to use that same loop
 - Wait for it with `await bot.wait_ready()`
 - Index the commands with `await bot.index_application_commands(GUILD_ID)` (has to happen before sending any command)
 - Make tests and have fun or pain, idk ur pick
@@ -20,11 +20,19 @@ Needs python 3.11 or newer.
 
 ```py
 from discord_self_bot_tester import Bot
+import asyncio
 
-bot = Bot(USER_TOKEN)
-bot.run()
-await bot.wait_ready()
-await bot.index_application_commands(GUILD_ID)
+async def main():
+    bot = Bot(USER_TOKEN)
+    bot.run()
+    try:
+        await bot.wait_ready()
+        await bot.index_application_commands(GUILD_ID)
+        # tests go here
+    finally:
+        await bot.stop()
+
+asyncio.run(main())
 ```
 
 ## Commands
