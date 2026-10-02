@@ -10,6 +10,13 @@ from urllib.parse import quote
 REACTION_URL = "https://discord.com/api/v9/channels/{}/messages/{}/reactions/{}/@me"
 
 class Reaction(Request):
+    """
+    Reacts to a message with a single emoji.
+
+    `emoji` is the literal character for a unicode emoji, or `name:id` for a custom
+    one; it is url-encoded on the way out.
+    """
+
     emoji: str
     message_id: str
     channel_id: str
@@ -21,4 +28,7 @@ class Reaction(Request):
             raise SelfBotRequestError("Request failed: " + str(res_data), res.status)
 
 def build_reaction(emoji: str, message_id: int, channel_id: int) -> Reaction:
+    """
+    A `Reaction`, taking the ids as the ints they are read as everywhere else.
+    """
     return Reaction(emoji=emoji, message_id=str(message_id), channel_id=str(channel_id))

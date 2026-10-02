@@ -1,6 +1,5 @@
-from .message import Message
 from ._base import (
-    MessageFilter,
+    Filter,
     GatewayEvent
 )
 from .autocomplete import CommandAutoCompleteResponse
@@ -10,7 +9,7 @@ import random
 import asyncio
 import logging
 
-from typing import cast, Optional, Any, TYPE_CHECKING
+from typing import cast, Any, TYPE_CHECKING
 
 # avoids cyclic import
 if TYPE_CHECKING:
@@ -41,31 +40,56 @@ PROPERTIES = {  # please don't steal my data - oliver
 WEBSOCKET_URL = "wss://gateway.discord.gg/?encoding=json&v=9"
 
 class GatewayException(GatewayEvent):
+    """
+    Queued in place of a real event when the socket dies.
+
+    Lets a waiting `get_next_gateway_event` return immediately rather than waiting for
+    its deadline.
+    """
     pass
 
-class Gateway:    
-    _assert_msg: Optional[MessageFilter] = None
+class Gateway:
+    """
+    Owns the websocket and the queue of events the assertions read from.
+    Used by `Bot`, created in its constructor and started by `Bot.run`.
+    """
+
+    _ws: aiohttp.ClientWebSocketResponse | None = None
+    _assert_filter: Filter | None = None
     _sleep_delay_max: int = 2  # in secs
     _gateway_queue: asyncio.Queue[GatewayEvent]
     _ready_cond: asyncio.Condition
     
     bot: "Bot"
     
-    def __init__(self, bot: "Bot"):        
+    # used by `Interaction.request` to await for its status data.
+    _interaction_status_events: dict[str, asyncio.Event]
+    _interaction_status_data: dict[str, bool]
+
+    def __init__(self, bot: "Bot"):
         self._gateway_queue = asyncio.Queue()
         self._ready_cond = asyncio.Condition()
         self.bot = bot
+        self._interaction_status_events = {}
+        self._interaction_status_data = {}
 
-    # Required to await for session_id, etc from READY payload
     async def wait_ready(self):
+        """
+        Waits until READY has been handled, so `session_id` and `user_id` are known.
+        
+        NOTE: when the socket dies, since `init_ws` sets `ready` to True, callers are expected to check`Bot._ws_error` afterwards.
+        """
         async with self._ready_cond:
             await self._ready_cond.wait_for(lambda: self.bot.ready)
 
     async def __heartbeat_task(self):
+        """
+        Keeps the socket alive for as long as it is open.        
+        """
         _ws = cast(aiohttp.ClientWebSocketResponse, self._ws)
 
         while True:
-
+            # uses the given interval from the HELLO payload as its upper bound.
             await asyncio.sleep(random.randint(1, self._sleep_delay_max))
 
             await _ws.send_json({
@@ -81,11 +105,23 @@ class Gateway:
             })
     
     async def get_next_gateway_event(self, deadline: int) -> GatewayEvent:
+        """
+        The next event a filter claimed, waiting at most `deadline` seconds.
+
+        Raises `TimeoutError` if nothing matched in time.
+        """
         gateway_event = await asyncio.wait_for(self._gateway_queue.get(), timeout=deadline)
         self._gateway_queue.task_done()
         return gateway_event
     
     async def init_ws(self):
+        """
+        Connects, identifies, then dispatches payloads until the socket closes.
+
+        Runs for the lifetime of the bot as a task owned by `Bot._tasks`. Any error is
+        recorded on `Bot._ws_error` and re-raised, so `Bot._check_ws_failed` can
+        surface it on the test's own thread of control.
+        """
         async with aiohttp.ClientSession() as session:
             try:
                 async with session.ws_connect(WEBSOCKET_URL) as _ws:
@@ -123,24 +159,12 @@ class Gateway:
                             elif opcode == 0:
                                 t: str = data["t"]
                                 match t:
-                                    case "MESSAGE_CREATE" | "MESSAGE_UPDATE":
-                                        data = data["d"]
-
-                                        msg_match = self._assert_msg is not None and \
-                                            self._assert_msg.matches(
-                                                self.bot.user_id,
-                                                t,
-                                                data
-                                            )
-                                        if msg_match:
-                                            self._assert_msg = None
-                                            gateway_event = Message.model_validate(
-                                                data)
-                                            await self._gateway_queue.put(gateway_event)
-                                        else:
-                                            logging.debug(
-                                                "Unknown data: " + str(data))
-
+                                    case "INTERACTION_SUCCESS" | "INTERACTION_FAILURE":
+                                        nonce = data["d"]["nonce"]
+                                        status_event = self._interaction_status_events.get(nonce)
+                                        if status_event is not None:
+                                            self._interaction_status_data[nonce] = t == "INTERACTION_SUCCESS"
+                                            status_event.set()
                                     case "READY":
                                         data = data["d"]
                                         self.bot.user_id = data["user"]["id"]
@@ -156,8 +180,20 @@ class Gateway:
                                             data)
                                         await self._gateway_queue.put(gateway_event)
                                     case _:
-                                        logging.debug(
-                                            "Unknown data: " + str(data))
+                                        # the filter decides which payload it wants and
+                                        # builds the gateway event out of it
+                                        if self._assert_filter is None:
+                                            logging.debug(
+                                                "Unknown data: " + str(data))
+                                            continue
+                                        matched = self._assert_filter.matches(
+                                            self.bot.user_id, data)
+                                        if matched is None:
+                                            logging.debug(
+                                                "Unknown data: " + str(data))
+                                            continue
+                                        self._assert_filter = None
+                                        await self._gateway_queue.put(matched)
                     
                     if _ws.close_code != 1000: # occurs when token is invalid
                         raise RuntimeError(

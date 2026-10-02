@@ -12,6 +12,21 @@ import logging
 GUILD_APPLICATION_COMMANDS_URL = "https://discord.com/api/v9/guilds/{}/application-command-index"
 
 class Bot:
+    """
+    A logged in user account, driven from tests.
+    
+    Construct it with a user token, `run` it on an already running event loop, then
+    `wait_ready` before doing anything else (we need to retrieve user_id and session_id from
+    the `READY` payload).
+
+    Any command whose interactions are to be sent also has to be indexed first, with
+    `index_application_commands`.
+
+    Every method here surfaces a dead websocket as a `RuntimeError` chained onto the
+    original failure, so a connection lost mid-run fails the test rather than hanging
+    it.
+    """
+
     token: str
     session_id: str = ""
     user_id: str = ""
@@ -46,6 +61,11 @@ class Bot:
         self._tasks.add(loop.create_task(self._gateway.init_ws()))
     
     async def stop(self):
+        """
+        Cancels the gateway and heartbeat tasks and closes the socket.
+
+        Call it from a `finally` so a failed assertion still tears the connection down.
+        """
         await self.__stop_tasks()
 
     async def __stop_tasks(self):
@@ -57,14 +77,35 @@ class Bot:
             pass # meh we ballin
 
     def _check_ws_failed(self):
+        """
+        Re-raises a websocket failure on the caller's own stack.
+
+        The socket runs in its own task, so without this its errors would surface only
+        as an assertion mysteriously timing out.
+        """
         if self._ws_error is not None:
             raise RuntimeError(f"Websocket died") from self._ws_error
 
     async def wait_ready(self):
+        """
+        Waits until discord's READY payload has been handled.
+
+        Raises `RuntimeError` if the socket died first, which is what an invalid token
+        looks like.
+        """
         await self._gateway.wait_ready()
         self._check_ws_failed()
 
     async def index_application_commands(self, guild_id: int):
+        """
+        Learns the id and version of every application command in a guild.
+
+        Discord rejects a command invocation that does not carry the exact version it
+        currently has registered, so this has to be run before any commands sent in ANY guilds.
+
+        Commands already indexed are left alone, so re-running this will not pick up a
+        redeployed bot's new versions; build a fresh `Bot` for that.
+        """
         async with aiohttp.ClientSession() as session:
             headers = {"Authorization": self.token,
                        "Content-Type": "application/json"}
@@ -81,6 +122,12 @@ class Bot:
                     .setdefault(command["name"], (command["id"], command["version"]))
     
     async def get_next_gateway_event(self, deadline: int) -> GatewayEvent:
+        """
+        The next event a filter claimed, waiting at most `deadline` seconds.
+
+        Used by the assertions rather than directly; raises `TimeoutError` if nothing
+        matched in time and `RuntimeError` if the socket died while waiting.
+        """
         self._check_ws_failed()
         
         event = await self._gateway.get_next_gateway_event(deadline)

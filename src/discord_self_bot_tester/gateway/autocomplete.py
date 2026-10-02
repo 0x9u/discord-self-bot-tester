@@ -3,11 +3,13 @@ from ._base import GatewayEvent
 from pydantic import BaseModel
 from typing import TypeAlias
 
-from typing import List
-
 CommandAutoCompleteChoiceValueType: TypeAlias = float | int | str
 
 class CommandAutoCompleteChoice(BaseModel):
+    """
+    One suggestion: `name` is rendered in the client, `value` is what gets submitted.
+    """
+
     name: str
     value: CommandAutoCompleteChoiceValueType
 
@@ -15,4 +17,8 @@ class CommandAutoCompleteChoice(BaseModel):
         return hash((self.name, self.value))
 
 class CommandAutoCompleteResponse(GatewayEvent):
-    choices: List[CommandAutoCompleteChoice]
+    """
+    A full autocomplete response, queued by the gateway without needing a filter.
+    """
+
+    choices: list[CommandAutoCompleteChoice]
