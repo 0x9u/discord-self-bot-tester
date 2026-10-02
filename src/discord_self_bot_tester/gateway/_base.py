@@ -1,11 +1,3 @@
-"""
-The gateway types that both `ws` and the event modules need.
-
-Kept in its own module purely to break the import cycle: `ws` imports the filters,
-while each filter has to import the concrete event model it builds (done lazily,
-inside `matches`).
-"""
-
 from pydantic import BaseModel
 
 from abc import ABC, abstractmethod
@@ -16,9 +8,6 @@ from typing import Literal, Any
 class GatewayEvent(BaseModel):
     """
     Base class for anything the gateway hands back to a test.
-
-    Note that this is subclassed by `GatewayException` as its queued in place of an event
-    when the gateway dies to ensure any waiting assertion fails instead of hanging.     
     """
     pass
 
@@ -65,9 +54,8 @@ class MessageFilter(Filter):
     def matches(self, user_id : str, data: dict[str, Any]) -> GatewayEvent | None:
         from .message import Message
 
-        message_payload_type = data["t"]
+        message_payload_type : str = data["t"]
         
-        # checked first so unrelated gateway events don't get indexed as messages
         if self.message_payload_type != message_payload_type:
             return None
         
@@ -90,12 +78,7 @@ class MessageFilter(Filter):
 class ModalFilter(Filter):
     """
     Picks the modal discord opened in response to one particular interaction.
-
-    Modals are only ever a reply to an interaction we sent, so the nonce we chose for
-    that interaction is enough to identify it. `ModalAssertion.assert_request`
-    overwrites `nonce` with the request's own just before sending.
-    """
-
+    """    
     nonce: str
     
     def matches(self, user_id : str, data: dict[str, Any]) -> GatewayEvent | None:

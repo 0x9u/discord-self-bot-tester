@@ -1,10 +1,3 @@
-"""
-Creating guild scheduled events.
-
-Not an interaction, but a convenient way to provoke a bot that listens for them, which
-is what the library's own tests use it for.
-"""
-
 from ..bot import Bot
 from ._base import Request, SelfBotRequestError
 

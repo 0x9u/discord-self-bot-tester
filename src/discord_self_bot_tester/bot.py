@@ -1,12 +1,3 @@
-"""
-The self-bot itself: the websocket connection, and the command index the interaction
-endpoints need.
-
-One `Bot` per test session. It holds no assertion state of its own - assertions install
-their filters on the gateway it owns - so it is really the shared connection every
-request and assertion is handed.
-"""
-
 from discord_self_bot_tester.gateway import GatewayException
 
 from .gateway import GatewayEvent, Gateway
@@ -23,10 +14,10 @@ GUILD_APPLICATION_COMMANDS_URL = "https://discord.com/api/v9/guilds/{}/applicati
 class Bot:
     """
     A logged in user account, driven from tests.
-
+    
     Construct it with a user token, `run` it on an already running event loop, then
-    `wait_ready` before doing anything else - the session id and user id that
-    interactions need only arrive with discord's READY payload.
+    `wait_ready` before doing anything else (we need to retrieve user_id and session_id from
+    the `READY` payload).
 
     Any command whose interactions are to be sent also has to be indexed first, with
     `index_application_commands`.
@@ -110,8 +101,7 @@ class Bot:
         Learns the id and version of every application command in a guild.
 
         Discord rejects a command invocation that does not carry the exact version it
-        currently has registered, so this has to be run - for the guild the commands
-        are to be sent in - before any APP_COMMAND or autocomplete interaction.
+        currently has registered, so this has to be run before any commands sent in ANY guilds.
 
         Commands already indexed are left alone, so re-running this will not pick up a
         redeployed bot's new versions; build a fresh `Bot` for that.

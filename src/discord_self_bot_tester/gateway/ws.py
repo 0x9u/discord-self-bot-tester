@@ -1,20 +1,3 @@
-"""
-The websocket connection to discord's user gateway.
-
-`Gateway` logs in with the account token, keeps the socket alive, and dispatches what
-comes back. Three kinds of payload are handled directly:
-
-* READY, which carries the session id and user id the interaction endpoints need
-* INTERACTION_SUCCESS / INTERACTION_FAILURE, the acknowledgement `Interaction.request`
-  waits on to learn whether discord accepted the interaction
-* APPLICATION_COMMAND_AUTOCOMPLETE_RESPONSE, queued unconditionally
-
-Everything else is offered to the single installed `Filter`, and dropped when no filter
-claims it. There is deliberately no reconnect: a test run that loses its socket should
-fail loudly, so the error is stashed on the bot and a `GatewayException` is queued to
-wake whichever assertion is waiting.
-"""
-
 from ._base import (
     Filter,
     GatewayEvent
@@ -60,16 +43,15 @@ class GatewayException(GatewayEvent):
     """
     Queued in place of a real event when the socket dies.
 
-    Lets a waiting `get_next_gateway_event` return immediately rather than sit on its
-    deadline; the caller then re-checks `Bot._ws_error` for the underlying cause.
+    Lets a waiting `get_next_gateway_event` return immediately rather than waiting for
+    its deadline.
     """
     pass
 
 class Gateway:
     """
     Owns the websocket and the queue of events the assertions read from.
-
-    One per `Bot`, created in its constructor and started by `Bot.run`.
+    Used by `Bot`, created in its constructor and started by `Bot.run`.
     """
 
     _ws: aiohttp.ClientWebSocketResponse | None = None
@@ -80,8 +62,7 @@ class Gateway:
     
     bot: "Bot"
     
-    # Registered by `Interaction.request` before it posts, and discarded by it in a
-    # `finally` - so an entry existing here means someone is still waiting on it.
+    # used by `Interaction.request` to await for its status data.
     _interaction_status_events: dict[str, asyncio.Event]
     _interaction_status_data: dict[str, bool]
 
@@ -92,29 +73,23 @@ class Gateway:
         self._interaction_status_events = {}
         self._interaction_status_data = {}
 
-    # Required to await for session_id, etc from READY payload
     async def wait_ready(self):
         """
         Waits until READY has been handled, so `session_id` and `user_id` are known.
-
-        Also returns when the socket dies, because `init_ws` flips `ready` in its
-        `finally` to release anyone waiting here; callers are expected to check
-        `Bot._ws_error` afterwards.
+        
+        NOTE: when the socket dies, since `init_ws` sets `ready` to True, callers are expected to check`Bot._ws_error` afterwards.
         """
         async with self._ready_cond:
             await self._ready_cond.wait_for(lambda: self.bot.ready)
 
     async def __heartbeat_task(self):
         """
-        Keeps the socket alive for as long as it is open.
-
-        The interval upper bound comes from the HELLO payload; each wait is jittered
-        inside it so we never sit exactly on discord's timeout.
+        Keeps the socket alive for as long as it is open.        
         """
         _ws = cast(aiohttp.ClientWebSocketResponse, self._ws)
 
         while True:
-
+            # uses the given interval from the HELLO payload as its upper bound.
             await asyncio.sleep(random.randint(1, self._sleep_delay_max))
 
             await _ws.send_json({
@@ -133,8 +108,7 @@ class Gateway:
         """
         The next event a filter claimed, waiting at most `deadline` seconds.
 
-        Raises `TimeoutError` if nothing matched in time, which is how an assertion
-        reports that the expected message never arrived.
+        Raises `TimeoutError` if nothing matched in time.
         """
         gateway_event = await asyncio.wait_for(self._gateway_queue.get(), timeout=deadline)
         self._gateway_queue.task_done()

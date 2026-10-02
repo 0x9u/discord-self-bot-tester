@@ -1,17 +1,3 @@
-"""
-End to end tests for the eventsbot `lachlan/rubric-event-creation` branch.
-
-That branch adds `/rubric set_rubric_token` and `/rubric create_event`, the latter
-replying with a two page `ModalBook`: a button per modal page, then "Create event" to
-submit everything to Rubric.
-
-Needs the eventsbot running that branch as TEST_BOT_USER_ID, and the self-bot account
-allowed to run `rubric create_event` by the bot's PermCog.
-
-The happy path posts a real (private) event to Rubric, so it only runs when
-RUBRIC_TOKEN is set; the other tests use a dummy token and never get as far as Rubric.
-"""
-
 from discord_self_bot_tester import Bot
 from discord_self_bot_tester.gateway import (
     ButtonStyle,
@@ -52,11 +38,6 @@ def _run(test):
     loop.run_until_complete(test())
 
 async def _open_rubric_book(bot: Bot, rubric_token: str, society_id: str) -> Message:
-    """
-    Sets the rubric token, then opens the event form, returning the message holding
-    its buttons.
-    """
-    # deferred, so the reply edits the "thinking" message
     await MessageAssertionBuilder()\
         .filter_by_author(TEST_BOT_USER_ID)\
         .filter_by_message_update()\
@@ -88,12 +69,6 @@ async def _open_details(bot: Bot, book: Message) -> Modal:
         .assert_request(bot, press_button(book, DETAILS_BUTTON))
 
 async def _submit_details(bot: Bot, book: Message) -> Message:
-    """
-    Fills in the details page, returning the book as the bot edited it.
-
-    A valid page is not answered with a message, the bot edits the book instead: the
-    details button goes green and the ticket details page unlocks.
-    """
     modal = await _open_details(bot, book)
 
     return await MessageAssertionBuilder()\

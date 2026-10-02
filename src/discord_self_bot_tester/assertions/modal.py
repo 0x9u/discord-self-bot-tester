@@ -1,10 +1,3 @@
-"""
-Expectations about a modal an interaction opens.
-
-Modals only ever arrive in response to an interaction we sent, so there is nothing to
-filter on beyond that interaction's nonce, which `assert_request` fills in itself.
-"""
-
 from ..bot import Bot
 
 from ..gateway.modal import Modal

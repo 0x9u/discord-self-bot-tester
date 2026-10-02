@@ -1,17 +1,3 @@
-"""
-Filling in and submitting a modal that discord opened for us.
-
-A MODAL_SUBMIT payload has to mirror the layout of the modal it answers - the same
-nesting of action rows and labels, the same ids - which is fiddly to write by hand and
-silently wrong when it drifts. `ModalResponseBuilder` takes the `Modal` off the gateway
-and rebuilds that shape from it, so a test only names the fields it wants to answer.
-
-Fields are named by the label discord renders above them, which is what a user would
-read, and every answer is checked against the component it is going into: the wrong
-component type, an unknown option, a value outside the length or count bounds, or a
-required field left blank all fail before anything is sent.
-"""
-
 from types import UnionType
 
 from ..gateway.component import (
@@ -26,7 +12,6 @@ from ..gateway.component import (
     StringSelectComponent,
     TextInputComponent,
     child_components,
-    walk_components,
 )
 from ..gateway.modal import Modal
 

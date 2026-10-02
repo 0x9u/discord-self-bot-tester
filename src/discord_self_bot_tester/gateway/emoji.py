@@ -1,7 +1,3 @@
-"""
-Discord's emoji object, as it appears nested in components and reactions.
-"""
-
 from .user import User
 
 from pydantic import BaseModel

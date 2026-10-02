@@ -1,10 +1,3 @@
-"""
-Expectations about the suggestions an autocomplete interaction comes back with.
-
-Autocomplete responses are queued by the gateway without a filter, so there is nothing
-to narrow here - only what the choices have to be.
-"""
-
 from ..bot import Bot
 from ..gateway.autocomplete import (
     CommandAutoCompleteResponse,

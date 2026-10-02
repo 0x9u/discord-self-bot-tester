@@ -1,16 +1,3 @@
-"""
-Expectations about a message a request produces.
-
-Two separate jobs live here and are worth keeping apart. The `filter_by_*` builder
-methods decide *which* message the assertion is about, and are matched against the raw
-gateway payload; the `assert_by_*` methods decide whether that message is *correct*,
-and run once it has been found. Getting a filter wrong makes the assertion time out;
-getting an expectation wrong makes it fail with a diff.
-
-Left completely unfiltered, the assertion takes the reply to the interaction it sent,
-matched on the nonce it chose.
-"""
-
 from ..bot import Bot
 
 from ..gateway._base import MessageFilter
@@ -30,6 +17,8 @@ from ._base import Assertion
 from pydantic import BaseModel
 from typing import Self
 import re
+
+# NOTE: Expectation postfix is used for assertion for children (e.g. components)
 
 class ButtonExpectation(BaseModel):
     """

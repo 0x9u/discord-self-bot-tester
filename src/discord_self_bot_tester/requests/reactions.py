@@ -1,7 +1,3 @@
-"""
-Adding a reaction to an existing message, as the logged in account.
-"""
-
 from ..bot import Bot
 
 from ._base import Request, SelfBotRequestError

@@ -1,17 +1,3 @@
-"""
-Interacting with the view on a message that has already been received.
-
-The point of this module is that a `Message` handed back by an assertion is enough on
-its own: the channel, guild, application, message id and flags an interaction needs are
-all read off it, so a test presses a button by the label discord renders on it and
-nothing else.
-
-Every helper asserts against the message it was given, so a renamed button, a disabled
-one, a link button that sends no interaction, or a selection outside a menu's
-min/max bounds fails here - with the available alternatives listed - rather than as an
-opaque rejection from discord.
-"""
-
 from ..gateway.component import (
     ButtonComponent,
     SelectComponent,

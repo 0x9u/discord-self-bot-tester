@@ -1,8 +1,3 @@
-"""
-The suggestions discord's autocomplete handler sent back for a partially typed command
-argument.
-"""
-
 from ._base import GatewayEvent
 
 from pydantic import BaseModel

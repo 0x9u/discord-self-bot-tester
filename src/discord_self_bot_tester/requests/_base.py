@@ -1,7 +1,3 @@
-"""
-The `Request` contract and the errors requests raise.
-"""
-
 from ..bot import Bot
 
 import aiohttp

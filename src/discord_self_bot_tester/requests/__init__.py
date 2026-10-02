@@ -1,16 +1,3 @@
-"""
-The sending half of the library: everything that goes out to discord's HTTP API.
-
-A `Request` knows how to post itself; the builders assemble one. Interactions
-(slash commands, button presses, dropdown selections, modal submissions) are the main
-event, with scheduled events and reactions alongside them as ways of provoking a bot
-into replying.
-
-Requests can be sent on their own with `send`, but are normally handed to an
-`..assertions` object instead, which installs a gateway filter first so the reply
-cannot be missed.
-"""
-
 from ._base import Request, SelfBotRequestError, SelfBotRequestSetupError
 from .commands import (
     InteractionType,

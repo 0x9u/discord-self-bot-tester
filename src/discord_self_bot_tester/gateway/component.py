@@ -1,15 +1,3 @@
-"""
-Discord's message and modal component tree.
-
-Each component has its own model, descriminated by its `type` number. Note that components
-can be recursive (see `ActionRowComponent` and `LabelComponent`) so `child_components` and `walk_components` exist to
-traverse it without every caller re-learning which types nest.
-
-The numbering is discord's own and is shared between message views and modals, so the
-same models cover both; `..requests.commands.ComponentType` is the matching enum for
-the payloads we send back.
-"""
-
 from .emoji import Emoji
 
 from collections.abc import Iterator
@@ -30,7 +18,7 @@ class ButtonStyle(Enum):
 	"""
 	How a button is rendered.
 
-	LINK and PREMIUM are handled entirely by the client and send no interaction.
+	NOTE: LINK and PREMIUM are handled entirely by the client and send no interaction.
 	"""
 
 	PRIMARY = 1
@@ -44,9 +32,7 @@ class ButtonComponent(BaseModel):
     """
     A clickable button.
 
-    Only buttons carrying a `custom_id` produce an interaction; LINK and PREMIUM
-    buttons are handled entirely by the client, which is why `custom_id` is optional
-    here and checked by `..requests.component.find_button`.
+    NOTE: Only buttons carrying a `custom_id` produce an interaction.
     """
 
     type: Literal[2]
@@ -90,9 +76,7 @@ class SelectOption(BaseModel):
 	"""
 	One entry in a string select or a radio/checkbox group.
 
-	`label` is what the client renders and `value` is what gets submitted; the helpers
-	let tests name either, since a test written against labels reads like the thing a
-	user would actually click.
+	`label` is what the client renders and `value` is what gets submitted.
 	"""
 
 	label: str
@@ -253,8 +237,7 @@ class Checkbox(BaseModel):
     custom_id: str
     default: bool | None = None
 
-# Any component discord may send us, discriminated on the wire `type` number so
-# pydantic picks the right model without trying each in turn.
+# types are discerned by the `type` number so pydantic can easily pick
 Component : TypeAlias = Annotated[
     ActionRowComponent
     | ButtonComponent

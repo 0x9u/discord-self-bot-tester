@@ -1,7 +1,3 @@
-"""
-The `Assertion` contract, generic over the request sent and the event expected.
-"""
-
 from ..requests._base import Request
 from ..gateway._base import GatewayEvent
 from ..bot import Bot
@@ -26,9 +22,8 @@ class Assertion(BaseModel, Generic[R, E], ABC):
         """
         Raises `AssertionError` if the matched event fails the expectations.
 
-        Separate from the filtering: by the time this runs the event has already been
-        claimed as the right one, so anything wrong here is a real failure rather than
-        a reason to keep waiting.
+        This is seperate from filtering as this checks whether the message retrieved from
+        the filter matches all asserted coonditions.
         """
         raise NotImplementedError
 

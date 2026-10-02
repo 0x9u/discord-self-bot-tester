@@ -1,21 +1,3 @@
-"""
-Interactions: the payload discord's client sends when a user uses a command or touches
-a component.
-
-All four interaction types share the one `Interaction` request and differ in what goes
-in `data`:
-
-* APP_COMMAND / APPLICATION_COMMAND_AUTOCOMPLETE carry an `ApplicationCommand`, and need
-  the target command's id and version, which is why `Bot.index_application_commands` has
-  to have been run first
-* MESSAGE_COMPONENT carries a `MessageComponent` plus the message being acted on
-* MODAL_SUBMIT carries a `ModalSubmitData` mirroring the modal's own layout
-
-Sending an interaction is a three step affair: post it, ack the channel, then wait for
-the gateway to report INTERACTION_SUCCESS or INTERACTION_FAILURE. The last step is what
-makes a rejected interaction fail the test instead of quietly producing no message.
-"""
-
 from ..bot import Bot
 
 from ._base import Request, SelfBotRequestError, SelfBotRequestSetupError

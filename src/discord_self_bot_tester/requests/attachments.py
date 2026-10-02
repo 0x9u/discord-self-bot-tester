@@ -1,7 +1,3 @@
-"""
-Upload an attachment, as the logged in account.
-"""
-
 from ..bot import Bot
 
 from ._base import Request, SelfBotRequestError
