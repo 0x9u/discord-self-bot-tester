@@ -1,4 +1,4 @@
-# Discord Self Bot Tester (BSBT) Library
+# Discord Self Bot Tester (DSBT) Library
 Package for testing commands using discord selfbot. Assertions (messages, and autocomplete) and requests (interactions, events, reactions) can be made using the bot.
 
 ## Install
