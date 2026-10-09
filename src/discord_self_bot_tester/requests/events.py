@@ -1,5 +1,5 @@
 from ..bot import Bot
-from ._base import Request, SelfBotRequestError
+from ._base import Request, _check_status
 
 from aiohttp import ClientSession
 
@@ -26,7 +26,7 @@ class GuildScheduledEventEntityType(Enum):
     """
     Where an event takes place.
 
-    STAGE_INSTANCE and VOICE need a `channel_id`; EXTERNAL needs a location.
+    ``STAGE_INSTANCE`` and ``VOICE`` need a ``channel_id``; ``EXTERNAL`` needs a location.
     """
 
     STAGE_INSTANCE = 1
@@ -37,7 +37,7 @@ class GuildScheduledEventEntityType(Enum):
 
 class RecurrenceRuleFrequency(Enum):
     """
-    How often a recurring event repeats. Dictates which `RecurrenceRule` fields apply.
+    How often a recurring event repeats. Dictates which :class:`RecurrenceRule` fields apply.
     """
 
     YEARLY = 0
@@ -82,9 +82,12 @@ class RecurrenceRuleMonth(Enum):
 class RecurrenceRuleNWeekday(BaseModel):
     """
     An nth weekday of the month, e.g. the second Tuesday.
+
+    :ivar n: The week of the month to recur on, 1 to 5.
+    :ivar day: The weekday within that week.
     """
 
-    n: int  # week to reoccur on 1-5
+    n: int
     day: RecurrenceRuleWeekday
 
 # https://docs.discord.food/resources/guild-scheduled-event#guild-scheduled-event-recurrence-rule-object
@@ -99,24 +102,24 @@ class RecurrenceRule(BaseModel):
     """
     How a scheduled event repeats.
 
-    Which fields may be combined is dictated by `frequency`, so prefer the
-    `ScheduledEventBuilder.set_recurrence_rule_*` helpers, which only produce
+    Which fields may be combined is dictated by ``frequency``, so prefer the
+    ``ScheduledEventBuilder.set_recurrence_rule_*`` helpers, which only produce
     combinations discord's backend accepts.
     """
 
     start: datetime
     frequency: RecurrenceRuleFrequency
-    interval: int
-    by_weekday: list[RecurrenceRuleWeekday] | None
-    by_n_weekday: list[RecurrenceRuleNWeekday] | None
+    interval: int = 1
+    by_weekday: list[RecurrenceRuleWeekday] | None = None
+    by_n_weekday: list[RecurrenceRuleNWeekday] | None = None
     # NOTE: doesn't have by_n_weekday
-    by_month: list[RecurrenceRuleMonth] | None
-    by_month_day: list[int] | None
+    by_month: list[RecurrenceRuleMonth] | None = None
+    by_month_day: list[int] | None = None
 
 
 class GuildScheduledEventEntity(BaseModel):
     """
-    The free text location of an EXTERNAL event.
+    The free text location of an ``EXTERNAL`` event.
     """
 
     location: str | None
@@ -126,11 +129,13 @@ class GuildScheduledEventEntity(BaseModel):
 
 class ScheduledEvent(Request):
     """
-    A scheduled event to create. Build one with `ScheduledEventBuilder`.
+    A scheduled event to create. Build one with :class:`ScheduledEventBuilder`.
 
-    `guild_id` is excluded from the dump because it belongs in the URL rather than the
-    body. An event is either in a voice channel (`channel_id`) or somewhere external
-    (`entity_metadata.location`), never both.
+    An event is either in a voice channel (``channel_id``) or somewhere external
+    (``entity_metadata.location``), never both.
+
+    :ivar guild_id: Excluded from the dump because it belongs in the URL rather than
+        the body.
     """
 
     guild_id : str = Field(exclude=True)
@@ -139,32 +144,32 @@ class ScheduledEvent(Request):
     description: str
     privacy_level: PrivacyLevel
     scheduled_start_time: datetime
-    scheduled_end_time: datetime | None
+    scheduled_end_time: datetime | None = None
     entity_type: GuildScheduledEventEntityType
-    recurrence_rule: RecurrenceRule | None
-    channel_id: str | None
-    entity_metadata: GuildScheduledEventEntity | None
-    
-    async def request(self, bot: Bot, session: ClientSession):        
+    recurrence_rule: RecurrenceRule | None = None
+    channel_id: str | None = None
+    entity_metadata: GuildScheduledEventEntity | None = None
+
+    async def request(self, bot: Bot, session: ClientSession):
         json = self.model_dump(mode="json", exclude_none=True)
-        
+
         res = await session.post(SCHEDULED_EVENTS_URL.format(self.guild_id), json=json)
-        if res.status != 200:
-            res_data = await res.text()
-            raise SelfBotRequestError("Request failed: " + str(res_data), res.status)
-        
+        await _check_status(res, 200)
+
 
 class ScheduledEventBuilder:
     """
-    Assembles a `ScheduledEvent`, one chained setter at a time.
+    Assembles a :class:`ScheduledEvent`, one chained setter at a time.
 
     The location and channel setters are mutually exclusive and say so, and the
     recurrence setters refuse to overwrite each other, so a contradictory event fails
-    here rather than as an opaque 400 from discord.
+    here rather than as an opaque 400 from discord. Example::
 
-    ScheduledEventBuilder(GuildScheduledEventEntityType.EXTERNAL,
-                          PrivacyLevel.GUILD_ONLY, GUILD_ID,
-                          "standup", "the daily one", datetime.now())        .set_location("the kitchen").compile()
+        ScheduledEventBuilder(GuildScheduledEventEntityType.EXTERNAL,
+                              PrivacyLevel.GUILD_ONLY, GUILD_ID,
+                              "standup", "the daily one", datetime.now())\\
+            .set_location("the kitchen")\\
+            .compile()
     """
 
     Self: TypeAlias = 'ScheduledEventBuilder'
@@ -172,21 +177,33 @@ class ScheduledEventBuilder:
     data: ScheduledEvent
 
     def __init__(self, entity_type: GuildScheduledEventEntityType, privacy_level: PrivacyLevel, guild_id : int, name: str, description: str, scheduled_start_time: datetime):
+        """
+        :param entity_type: Where the event takes place. Decides whether
+            :meth:`set_channel_id` or :meth:`set_location` is needed.
+        :param privacy_level: Who can see the event.
+        :param guild_id: The guild to create the event in.
+        :param name: The event's name.
+        :param description: The event's description.
+        :param scheduled_start_time: When the event starts, and when any recurrence
+            rule starts counting from.
+        """
         self.data = ScheduledEvent(
             guild_id=str(guild_id),
             name=name,
             description=description,
             privacy_level=privacy_level,
             scheduled_start_time=scheduled_start_time,
-            scheduled_end_time=None,
-            entity_type=entity_type,
-            recurrence_rule=None,
-            channel_id=None,
-            entity_metadata=None
+            entity_type=entity_type
         )
 
-    # NOTE: must be voice channel id
     def set_channel_id(self, channel_id: int) -> Self:
+        """
+        Holds the event in a channel, for ``STAGE_INSTANCE`` and ``VOICE`` events.
+
+        :param channel_id: A voice or stage channel.
+        :returns: This builder.
+        :raises RuntimeError: If a location was already set.
+        """
         if self.data.entity_metadata is not None:
             raise RuntimeError("Cannot set channel_id after setting location")
 
@@ -194,6 +211,13 @@ class ScheduledEventBuilder:
         return self
 
     def set_location(self, location: str) -> Self:
+        """
+        Holds the event somewhere outside discord, for ``EXTERNAL`` events.
+
+        :param location: Free text shown as the event's location.
+        :returns: This builder.
+        :raises RuntimeError: If a channel was already set.
+        """
         if self.data.channel_id is not None:
             raise RuntimeError("Cannot set location after setting channel_id")
 
@@ -201,77 +225,74 @@ class ScheduledEventBuilder:
             location=location)
         return self
 
-    def set_recurrence_rule_yearly(self, month: RecurrenceRuleMonth, day: int) -> Self:
+    def _set_recurrence_rule(self, frequency: RecurrenceRuleFrequency, **fields) -> Self:
         if self.data.recurrence_rule is not None:
             raise RuntimeError("Recurrence rule already set")
 
         self.data.recurrence_rule = RecurrenceRule(
-            start=self.data.scheduled_start_time,
-            frequency=RecurrenceRuleFrequency.YEARLY,
-            interval=1,
-            by_weekday=None,
-            by_n_weekday=None,
-            by_month=[month],
-            by_month_day=[day]
-        )
-
+            start=self.data.scheduled_start_time, frequency=frequency, **fields)
         return self
+
+    def set_recurrence_rule_yearly(self, month: RecurrenceRuleMonth, day: int) -> Self:
+        """
+        Repeats the event every year on the same date.
+
+        :param month: The month it falls in.
+        :param day: The day of that month.
+        :returns: This builder.
+        :raises RuntimeError: If a recurrence rule was already set.
+        """
+        return self._set_recurrence_rule(
+            RecurrenceRuleFrequency.YEARLY, by_month=[month], by_month_day=[day])
 
     def set_recurrence_rule_monthly(self, n_week: int, day: RecurrenceRuleWeekday) -> Self:
-        if self.data.recurrence_rule is not None:
-            raise RuntimeError("Recurrence rule already set")
+        """
+        Repeats the event every month on the nth weekday, e.g. the second Tuesday.
 
-        self.data.recurrence_rule = RecurrenceRule(
-            start=self.data.scheduled_start_time,
-            frequency=RecurrenceRuleFrequency.MONTHLY,
-            interval=1,
-            by_weekday=None,
-            by_n_weekday=[RecurrenceRuleNWeekday(n=n_week, day=day)],
-            by_month=None,
-            by_month_day=None
-        )
-
-        return self
+        :param n_week: Which week of the month, 1 to 5.
+        :param day: The weekday within that week.
+        :returns: This builder.
+        :raises RuntimeError: If a recurrence rule was already set.
+        """
+        return self._set_recurrence_rule(
+            RecurrenceRuleFrequency.MONTHLY, by_n_weekday=[RecurrenceRuleNWeekday(n=n_week, day=day)])
 
     def set_recurrence_rule_weekly(self, day: RecurrenceRuleWeekday, every_other_week: bool = False) -> Self:
-        if self.data.recurrence_rule is not None:
-            raise RuntimeError("Recurrence rule already set")
+        """
+        Repeats the event every week, or every other week, on one weekday.
 
-        self.data.recurrence_rule = RecurrenceRule(
-            start=self.data.scheduled_start_time,
-            frequency=RecurrenceRuleFrequency.WEEKLY,
-            interval=2 if every_other_week else 1,
-            by_weekday=[day],
-            by_n_weekday=None,
-            by_month=None,
-            by_month_day=None
-        )
-
-        return self
+        :param day: The weekday it falls on.
+        :param every_other_week: Skip every second week.
+        :returns: This builder.
+        :raises RuntimeError: If a recurrence rule was already set.
+        """
+        return self._set_recurrence_rule(
+            RecurrenceRuleFrequency.WEEKLY, interval=2 if every_other_week else 1, by_weekday=[day])
 
     def set_recurrence_rule_daily(self, days: list[RecurrenceRuleWeekday]) -> Self:
-        if self.data.recurrence_rule is not None:
-            raise RuntimeError("Recurrence rule already set")
+        """
+        Repeats the event on several weekdays of every week.
 
-        self.data.recurrence_rule = RecurrenceRule(
-            start=self.data.scheduled_start_time,
-            frequency=RecurrenceRuleFrequency.DAILY,
-            interval=1,
-            by_weekday=days,
-            by_n_weekday=None,
-            by_month=None,
-            by_month_day=None
-        )
-
-        return self
+        :param days: The weekdays it falls on.
+        :returns: This builder.
+        :raises RuntimeError: If a recurrence rule was already set.
+        """
+        return self._set_recurrence_rule(RecurrenceRuleFrequency.DAILY, by_weekday=days)
 
     def set_end_time(self, end_time: datetime) -> Self:
+        """
+        :param end_time: When the event ends.
+        :returns: This builder.
+        """
         self.data.scheduled_end_time = end_time
         return self
 
     def compile(self) -> ScheduledEvent:
         """
-        The finished request. Raises if neither a channel nor a location was set.
+        Finishes the event.
+
+        :returns: The request, ready to send.
+        :raises RuntimeError: If neither a channel nor a location was set.
         """
         if self.data.channel_id is None and self.data.entity_metadata is None:
             raise RuntimeError("Must set channel_id or location")

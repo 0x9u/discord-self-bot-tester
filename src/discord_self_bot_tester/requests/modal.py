@@ -12,6 +12,7 @@ from ..gateway.component import (
     StringSelectComponent,
     TextInputComponent,
     child_components,
+    walk_components,
 )
 from ..gateway.modal import Modal
 
@@ -24,7 +25,7 @@ from .commands import (
     _build_interaction
 )
 
-from typing import Self, TypeAlias, cast
+from typing import Self, TypeAlias, cast, get_args
 
 # components the user can put an answer into
 AnswerComponent: TypeAlias = (
@@ -36,34 +37,11 @@ AnswerComponent: TypeAlias = (
     | Checkbox
 )
 
-def _find_label_or_text_input(components: list[Component], label: str) -> TextInputComponent | LabelComponent | None:
-    """
-    Depth first search for the label with this exact caption.
-    """
-    for component in components:
-        if (isinstance(component, LabelComponent) or \
-            isinstance(component, TextInputComponent)) and component.label == label:
-            return component
-        found = _find_label_or_text_input(child_components(component), label)
-        if found is not None:
-            return found
-    return None
-
-def _find_custom_id(components: list[Component], custom_id: str) -> Component | None:
-    """
-    Depth first search for the component with this developer defined id.
-    """
-    for component in components:
-        if getattr(component, "custom_id", None) == custom_id:
-            return component
-        found = _find_custom_id(child_components(component), custom_id)
-        if found is not None:
-            return found
-    return None
-
 def _label_paths(components: list[Component], prefix: tuple[str, ...] = ()) -> list[str]:
     """
-    Every label in the modal, nested ones written as `outer > inner`.
+    Lists every label in the modal, for error messages.
+
+    :returns: The labels, nested ones written as ``outer > inner``.
     """
     paths: list[str] = []
     for component in components:
@@ -75,15 +53,6 @@ def _label_paths(components: list[Component], prefix: tuple[str, ...] = ()) -> l
             paths.extend(_label_paths(child_components(component), prefix))
     return paths
 
-def _custom_ids(components: list[Component]) -> list[str]:
-    ids: list[str] = []
-    for component in components:
-        custom_id = getattr(component, "custom_id", None)
-        if custom_id is not None:
-            ids.append(custom_id)
-        ids.extend(_custom_ids(child_components(component)))
-    return ids
-
 
 class ModalResponseBuilder:
     """
@@ -92,13 +61,16 @@ class ModalResponseBuilder:
     Components are picked by the label discord renders above them, which is what a
     user would click on. Every selection and every value is asserted against the
     modal we were actually given, so a renamed field or a changed component type
-    fails here instead of silently submitting the wrong payload.
+    fails here instead of silently submitting the wrong payload. Example::
 
-    modal = await ModalAssertionBuilder().compile().assert_request(bot, req)
-    req = ModalResponseBuilder(modal)\
-        .select("Your name").set_text("oliver")\
-        .select("Favourite colour").choose("Green")\
-        .compile(GUILD_ID, CHANNEL_ID)
+        modal = await ModalAssertionBuilder().compile().assert_request(bot, req)
+        req = ModalResponseBuilder(modal)\\
+            .select("Your name").set_text("oliver")\\
+            .select("Favourite colour").choose("Green")\\
+            .compile(GUILD_ID, CHANNEL_ID)
+
+    Every setter raises :class:`AssertionError` if no component is selected, the
+    selected component is the wrong kind for it, or the value would not be accepted.
     """
 
     modal: Modal
@@ -110,6 +82,10 @@ class ModalResponseBuilder:
     _selected_as: str
 
     def __init__(self, modal: Modal):
+        """
+        :param modal: The modal to answer, as returned by
+            :meth:`ModalAssertion.assert_request <discord_self_bot_tester.assertions.modal.ModalAssertion.assert_request>`.
+        """
         self.modal = modal
         self._answers = {}
         self._selected = None
@@ -117,11 +93,14 @@ class ModalResponseBuilder:
 
     def select(self, *labels: str) -> Self:
         """
-        Selects the component sitting under `labels`.
+        Selects a component by its label, and aims the setters at it.
 
-        Passing more than one label walks into nested components, e.g.
-        `select("Address", "Postcode")` finds the label "Address" and then looks for
-        the label "Postcode" inside it.
+        :param labels: The label's caption. Passing more than one walks into nested
+            components, e.g. ``select("Address", "Postcode")`` finds the label
+            "Address" and then looks for the label "Postcode" inside it.
+        :returns: This builder.
+        :raises AssertionError: If a label does not exist, or the component under it
+            holds no value.
         """
         if len(labels) == 0:
             raise AssertionError("select needs at least one label")
@@ -130,8 +109,9 @@ class ModalResponseBuilder:
         found: LabelComponent | TextInputComponent | None = None
 
         for depth, label in enumerate(labels):
-            print(f"(DEPTH: {depth}) components: {scope!r}")
-            found = _find_label_or_text_input(scope, label)
+            found = next((component for component in walk_components(scope)
+                          if isinstance(component, (LabelComponent, TextInputComponent))
+                          and component.label == label), None)
             if found is None:
                 where = "" if depth == 0 else f" under {' > '.join(labels[:depth])!r}"
                 raise AssertionError(
@@ -147,18 +127,30 @@ class ModalResponseBuilder:
     def select_by_custom_id(self, custom_id: str) -> Self:
         """
         Selects a component by its developer defined id instead of its label.
+
+        :param custom_id: The component's custom_id.
+        :returns: This builder.
+        :raises AssertionError: If no component has that id, or it holds no value.
         """
-        found = _find_custom_id(self.modal.components, custom_id)
-        if found is None:
+        components = list(walk_components(self.modal.components))
+        custom_ids = [getattr(component, "custom_id", None) for component in components]
+        if custom_id not in custom_ids:
             raise AssertionError(
                 f"Modal {self.modal.custom_id!r} has no component with custom_id {custom_id!r}"
-                f"\nAvailable custom ids: {_custom_ids(self.modal.components)}")
+                f"\nAvailable custom ids: {[id for id in custom_ids if id is not None]}")
+        found = components[custom_ids.index(custom_id)]
 
         self._selected_as = custom_id
         self._select_component(found)
         return self
 
     def set_text(self, value: str) -> Self:
+        """
+        Answers a text input.
+
+        :param value: The text to enter, within the input's length limits.
+        :returns: This builder.
+        """
         component = self._require(TextInputComponent)
         
         if component.min_length is not None and len(value) < component.min_length:
@@ -175,10 +167,17 @@ class ModalResponseBuilder:
     def set_values(self, *values: str) -> Self:
         """
         Answers a select menu, a checkbox group or a file upload with raw values.
-        
-        Note that if one wants to attach files to an `FileUpload` component,
-        they will have upload the file first using `Attachment.send(bot)` and then use
-        attachment id (obtained via `Attachment.get_attachment_id()`) as the value.
+
+        .. note:: To attach files to a
+            :class:`~discord_self_bot_tester.gateway.component.FileUpload`, upload
+            each one first with an
+            :class:`~discord_self_bot_tester.requests.attachments.Attachment` and pass
+            its
+            :meth:`~discord_self_bot_tester.requests.attachments.Attachment.get_attachment_id`
+            as the value.
+
+        :param values: The values to submit, within the component's min and max.
+        :returns: This builder.
         """
         component = self._require(SelectComponent, CheckboxGroup, FileUpload)
 
@@ -204,6 +203,9 @@ class ModalResponseBuilder:
     def set_option(self, value: str) -> Self:
         """
         Answers a radio group with a raw option value.
+
+        :param value: The value of the option to pick.
+        :returns: This builder.
         """
         component = self._require(RadioGroup)
 
@@ -216,13 +218,23 @@ class ModalResponseBuilder:
         return self._answer(component, value=value)
 
     def set_checked(self, checked: bool = True) -> Self:
+        """
+        Answers a single checkbox.
+
+        :param checked: Whether to tick it.
+        :returns: This builder.
+        """
         component = self._require(Checkbox)
         return self._answer(component, value=checked)
 
     def choose(self, *option_labels: str) -> Self:
         """
-        Answers an option bearing component by the labels discord renders for its
-        options, rather than by their underlying values.
+        Answers a string select, radio group or checkbox group by the labels discord
+        renders for its options, rather than by their underlying values.
+
+        :param option_labels: The labels of the options to pick. Exactly one for a
+            radio group.
+        :returns: This builder.
         """
         component = self._require(StringSelectComponent, RadioGroup, CheckboxGroup)
 
@@ -247,13 +259,16 @@ class ModalResponseBuilder:
 
     def compile(self, guild_id: int, channel_id: int, application_id: int | None = None) -> Interaction:
         """
-        Compiles into a MODAL_SUBMIT interaction, ready to be sent or asserted on.
+        Compiles into a ``MODAL_SUBMIT`` interaction.
 
-        `application_id` is taken off the modal payload when discord included it, and
-        has to be passed explicitly when it did not.
-
-        Raises if any component discord marked required was never answered, so a modal
-        that gained a field fails here rather than being submitted incomplete.
+        :param guild_id: The guild the modal was opened in.
+        :param channel_id: The channel the modal was opened in.
+        :param application_id: Taken off the modal payload when discord included it,
+            and has to be passed explicitly when it did not.
+        :returns: The interaction, ready to send or to hand to an assertion.
+        :raises AssertionError: If no application id is known, or any component
+            discord marked required was never answered, so a modal that gained a field
+            fails here rather than being submitted incomplete.
         """
         
         # https://docs.discord.food/interactions/receiving-and-responding#modal-submit-data-structure
@@ -289,7 +304,9 @@ class ModalResponseBuilder:
 
     def _select_component(self, component: Component):
         """
-        Points the setters at `component`, refusing ones that hold no value.
+        Points the setters at ``component``.
+
+        :raises AssertionError: If it holds no value.
         """
         if not isinstance(component, AnswerComponent):
             raise AssertionError(
@@ -299,26 +316,22 @@ class ModalResponseBuilder:
 
     def _require[T](self, *types: type[T] | UnionType) -> T:
         """
-        The selected component, asserted to be one of `types`.
+        Checks the selected component is the right kind for a setter. This is what
+        stops :meth:`set_text` being used on a dropdown, and so on.
 
-        This is what stops `set_text` being used on a dropdown, and so on.
+        :param types: The component classes, or unions of them, the setter accepts.
+        :returns: The selected component.
+        :raises AssertionError: If nothing is selected, or it is none of ``types``.
         """
         if self._selected is None:
             raise AssertionError("No component selected, call select() first")
         
-        flat_types: list[type] = []
-        for t in types:
-            if isinstance(t, UnionType):
-                flat_types.extend(t.__args__)
-            else:
-                flat_types.append(t)
-        
-        flat_types_tuple = tuple(flat_types)
-        
-        if not isinstance(self._selected, flat_types_tuple):
+        flat_types = tuple(arg for t in types for arg in ((t,) if isinstance(t, type) else get_args(t)))
+
+        if not isinstance(self._selected, flat_types):
             raise AssertionError(
                 f"Component {self._selected_as!r} is a {type(self._selected).__name__},"
-                f" expected one of: {[expected.__name__ for expected in flat_types_tuple]}")
+                f" expected one of: {[expected.__name__ for expected in flat_types]}")
         
         return cast(T, self._selected)
 
@@ -340,10 +353,12 @@ class ModalResponseBuilder:
 
     def _missing_required(self) -> list[str]:
         """
-        Labels of the components discord told us are required but were never answered.
+        Finds the components discord told us are required but were never answered.
 
-        Only components explicitly marked required are checked, an absent `required`
+        Only components explicitly marked required are checked, an absent ``required``
         is treated as optional even though discord defaults it to true.
+
+        :returns: Their labels, or custom_ids where they have no label.
         """
         missing: list[str] = []
 

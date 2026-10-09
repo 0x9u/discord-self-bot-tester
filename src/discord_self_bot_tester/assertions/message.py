@@ -30,6 +30,10 @@ class ButtonExpectation(BaseModel):
     disabled: bool | None = None
 
     def matches(self, button: ButtonComponent) -> bool:
+        """
+        :param button: A button on the message.
+        :returns: Whether it meets every field that is set.
+        """
         if self.label is not None and self.label != button.label:
             return False
         if self.custom_id is not None and self.custom_id != button.custom_id:
@@ -54,8 +58,9 @@ class DropdownExpectation(BaseModel):
     """
     A select menu the message has to carry, matched on whichever fields are set.
 
-    `option_labels` and `option_values` have to match the menu's options exactly, in
-    order, so a reordered or padded out menu is caught.
+    :ivar option_labels: Have to match the menu's option labels exactly, in order, so a
+        reordered or padded out menu is caught.
+    :ivar option_values: Like ``option_labels``, for the option values.
     """
     custom_id: str | None = None
     placeholder: str | None = None
@@ -64,6 +69,10 @@ class DropdownExpectation(BaseModel):
     disabled: bool | None = None
 
     def matches(self, dropdown: SelectComponent) -> bool:
+        """
+        :param dropdown: A select menu on the message.
+        :returns: Whether it meets every field that is set.
+        """
         if self.custom_id is not None and self.custom_id != dropdown.custom_id:
             return False
         if self.placeholder is not None and self.placeholder != dropdown.placeholder:
@@ -102,16 +111,22 @@ def _describe_dropdown(dropdown: SelectComponent) -> dict[str, object]:
 
 class MessageAssertion(Assertion[Request, Message]):
     """
-    Waits for one message and checks it. Build one with `MessageAssertionBuilder`.
+    Waits for one message and checks it. Build one with :class:`MessageAssertionBuilder`.
+
+    :ivar message_filter: Which message to wait for. When ``None``, the reply to the
+        request if it is an interaction, otherwise the next message on the gateway.
+    :ivar content_search_pattern: A regex the content has to match.
+    :ivar mentions: The user ids the message has to mention, in order.
+    :ivar mention_roles: The role ids the message has to mention, in order.
+    :ivar buttons: Buttons the message has to carry.
+    :ivar button_labels: The labels of every button on the message, in order.
+    :ivar dropdowns: Select menus the message has to carry.
     """
 
-    # what to distingish the message from
-    # if None, it will pick the next message in the websocket, or if
-    # the request is a app command, it will pick the message replying to the command.
     message_filter: MessageFilter | None
 
     content_search_pattern: str | None
-    mentions: list[str] | None  # list of user ids
+    mentions: list[str] | None
     mention_roles: list[str] | None
     
     # COMPONENTS
@@ -127,7 +142,7 @@ class MessageAssertion(Assertion[Request, Message]):
             raise AssertionError(
                 f"Mismatch\nGot: {gateway_event.content}\nMust match: {content_search_pattern}")
 
-        if self.mentions is not None and list(map(lambda x: x.id, gateway_event.mentions)) == self.mentions:
+        if self.mentions is not None and [mention.id for mention in gateway_event.mentions] != self.mentions:
             raise AssertionError(
                 f"Mismatch\nGot: {gateway_event.mentions}\nMust match: {self.mentions}")
 
@@ -143,6 +158,8 @@ class MessageAssertion(Assertion[Request, Message]):
 
         The whole component tree is flattened first, so a button nested in an action
         row counts the same as a top level one.
+
+        :raises AssertionError: If an expectation is not met.
         """
         components = list(walk_components(gateway_event.components or []))
         buttons = [component for component in components
@@ -171,37 +188,39 @@ class MessageAssertion(Assertion[Request, Message]):
     async def assert_request(self, bot : Bot, req : Request, deadline: int = 5) -> Message:
         if self.message_filter is None:
             self.message_filter = MessageFilter(
-                author_id=None,
-                channel_id=None,
-                nonce_id=req.nonce if isinstance(
-                    req, Interaction) else None,
-                message_flags=None
-            )
+                nonce_id=req.nonce if isinstance(req, Interaction) else None)
         elif self.message_filter.is_followup and isinstance(req, Interaction):
             self.message_filter.nonce_id = req.nonce
-        
+
         bot._gateway._assert_filter = self.message_filter
-        
+
         await req.send(bot)
-        
-        gateway_event = await bot.get_next_gateway_event(deadline)
-        
-        if not isinstance(gateway_event, Message):
-            raise TypeError("Expected message, got: " +
-                                type(gateway_event).__name__)
-                
-        self._check(gateway_event)
-        
-        return gateway_event
+
+        return await self._receive(bot, deadline)
 
     async def assert_gateway(self, bot : Bot, deadline: int = 5) -> Message:
+        """
+        See :meth:`Assertion.assert_gateway <discord_self_bot_tester.assertions._base.Assertion.assert_gateway>`.
+
+        :raises TypeError: If no filter was set, since without a request there is no
+            reply to wait for.
+        """
         if self.message_filter is None:
             raise TypeError("MessageAssertion must have a message_filter for assert_gateway")
-        
+
         bot._gateway._assert_filter = self.message_filter
-        
+
+        return await self._receive(bot, deadline)
+
+    async def _receive(self, bot: Bot, deadline: int) -> Message:
+        """
+        Waits for the message the installed filter claims, and checks it.
+
+        :returns: The message.
+        :raises TypeError: If the gateway handed back something other than a message.
+        """
         gateway_event = await bot.get_next_gateway_event(deadline)
-        
+
         if not isinstance(gateway_event, Message):
             raise TypeError("Expected message, got: " +
                                 type(gateway_event).__name__)
@@ -212,15 +231,16 @@ class MessageAssertion(Assertion[Request, Message]):
 
 class MessageAssertionBuilder:
     """
-    Assembles a `MessageAssertion`.
+    Assembles a :class:`MessageAssertion`.
 
-    `filter_by_*` narrows which message counts, `assert_by_*` states what has to be
+    ``filter_by_*`` narrows which message counts, ``assert_by_*`` states what has to be
     true of it. Calling neither means "the reply to the request I am about to send".
+    Every method returns this builder. Example::
 
-    await MessageAssertionBuilder()\
-        .filter_by_author(BOT_USER_ID)\
-        .assert_by_button("Confirm")\
-        .compile().assert_request(bot, interaction)
+        await MessageAssertionBuilder()\\
+            .filter_by_author(BOT_USER_ID)\\
+            .assert_by_button("Confirm")\\
+            .compile().assert_request(bot, interaction)
     """
 
     data: MessageAssertion
@@ -229,95 +249,84 @@ class MessageAssertionBuilder:
         self.data = MessageAssertion(
             message_filter=None, content_search_pattern=None, mentions=None, mention_roles=None)
 
+    def _filter(self) -> MessageFilter:
+        if self.data.message_filter is None:
+            self.data.message_filter = MessageFilter()
+        return self.data.message_filter
+
     def filter_by_author(self, author_id: int) -> Self:
         """
-        Only messages sent by this user, normally the bot under test.
-        """
-        if self.data.message_filter is None:
-            self.data.message_filter = MessageFilter(
-                author_id=str(author_id), channel_id=None, nonce_id=None, message_flags=None)
-            return self
+        Only matches messages sent by one user.
 
-        self.data.message_filter.author_id = str(author_id)
+        :param author_id: The user, normally the bot under test.
+        """
+        self._filter().author_id = str(author_id)
         return self
 
     def filter_by_channel(self, channel_id: int) -> Self:
         """
-        Only messages in this channel.
-        """
-        if self.data.message_filter is None:
-            self.data.message_filter = MessageFilter(
-                author_id=None, channel_id=str(channel_id), nonce_id=None, message_flags=None)
-            return self
+        Only matches messages in one channel.
 
-        self.data.message_filter.channel_id = str(channel_id)
+        :param channel_id: The channel.
+        """
+        self._filter().channel_id = str(channel_id)
         return self
 
     def filter_by_interaction_from_author(self) -> Self:
         """
-        Only messages produced by an interaction this account triggered.
+        Only matches messages produced by an interaction this account triggered.
 
         Useful on a busy channel where other people are using the same command.
         """
-        if self.data.message_filter is None:
-            self.data.message_filter = MessageFilter(
-                author_id=None, channel_id=None, nonce_id=None, message_flags=None)
-        self.data.message_filter.interaction_is_from_author = True
+        self._filter().interaction_is_from_author = True
         return self
 
-    
     def filter_by_message_update(self) -> Self:
         """
-        Only messages that are updated.
-        
+        Only matches messages being edited, rather than created.
+
         Useful when a command defers the response.
         """
-        if self.data.message_filter is None:
-            self.data.message_filter = MessageFilter(
-                author_id=None, channel_id=None, nonce_id=None, message_flags=None)
-        self.data.message_filter.message_payload_type = "MESSAGE_UPDATE"
+        self._filter().message_payload_type = "MESSAGE_UPDATE"
         return self
 
     def filter_by_followup_message(self) -> Self:
         """
         Ties an explicitly filtered assertion back to the request's own nonce.
 
-        Only needed when a `filter_by_*` has already been set, since the nonce is
+        Only needed when a ``filter_by_*`` has already been set, since the nonce is
         picked up automatically when no filter was given at all.
         """
-        if self.data.message_filter is None:
-            self.data.message_filter = MessageFilter(
-                author_id=None, channel_id=None, nonce_id=None, message_flags=None)
-        self.data.message_filter.is_followup = True
+        self._filter().is_followup = True
         return self
-    
+
     def filter_by_message_flags(self, flags: int) -> Self:
         """
-        Only messages whose flags are exactly `flags`, e.g. 64 for an ephemeral reply.
+        Only matches messages with exactly these flags.
+
+        :param flags: The message flags, e.g. 64 for an ephemeral reply.
         """
-        if self.data.message_filter is None:
-                self.data.message_filter = MessageFilter(
-                    author_id=None, channel_id=None, nonce_id=None, message_flags=None)
-        self.data.message_filter.message_flags = flags
+        self._filter().message_flags = flags
         return self
 
     def assert_by_message_content(self, pattern: str) -> Self:
         """
-        The content has to match this regex, anchored at the start (`re.match`).
+        :param pattern: A regex the content has to match, anchored at the start
+            (:func:`re.match`).
         """
         self.data.content_search_pattern = pattern
         return self
 
     def assert_by_mentions(self, mentions: list[int]) -> Self:
         """
-        These have to be exactly the users the message mentions, in order.
+        :param mentions: Exactly the user ids the message has to mention, in order.
         """
         self.data.mentions = list(map(str, mentions))
         return self
 
     def assert_by_mention_roles(self, mention_roles: list[int]) -> Self:
         """
-        These have to be exactly the roles the message mentions, in order.
+        :param mention_roles: Exactly the role ids the message has to mention, in order.
         """
         self.data.mention_roles = list(map(str, mention_roles))
         return self
@@ -329,6 +338,12 @@ class MessageAssertionBuilder:
         Asserts the message carries a button matching everything given.
 
         Call it more than once to assert several buttons.
+
+        :param label: The text rendered on the button.
+        :param custom_id: The button's developer defined id.
+        :param style: How the button is rendered.
+        :param disabled: Whether the button is greyed out.
+        :raises TypeError: If nothing is given.
         """
         if label is None and custom_id is None and style is None and disabled is None:
             raise TypeError(
@@ -340,7 +355,8 @@ class MessageAssertionBuilder:
 
     def assert_by_button_labels(self, labels: list[str | None]) -> Self:
         """
-        Asserts these are the labels of every button on the message, in order.
+        :param labels: Exactly the labels of every button on the message, in order.
+            ``None`` stands for a button with no label.
         """
         self.data.button_labels = labels
         return self
@@ -352,8 +368,12 @@ class MessageAssertionBuilder:
         """
         Asserts the message carries a select menu matching everything given.
 
-        `option_labels` and `option_values` have to match the menu's options exactly
-        and in order.
+        :param placeholder: The text shown before anything is picked.
+        :param custom_id: The menu's developer defined id.
+        :param option_labels: Exactly the menu's option labels, in order.
+        :param option_values: Exactly the menu's option values, in order.
+        :param disabled: Whether the menu is greyed out.
+        :raises TypeError: If nothing is given.
         """
         if placeholder is None and custom_id is None and option_labels is None \
                 and option_values is None and disabled is None:
@@ -368,6 +388,6 @@ class MessageAssertionBuilder:
 
     def compile(self) -> MessageAssertion:
         """
-        Retrieve the assertion.
+        :returns: The finished assertion.
         """
         return self.data

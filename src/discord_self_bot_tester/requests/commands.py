@@ -1,6 +1,6 @@
 from ..bot import Bot
 
-from ._base import Request, SelfBotRequestError, SelfBotRequestSetupError
+from ._base import Request, SelfBotRequestSetupError, _check_status
 
 from aiohttp import ClientSession
 from pydantic import BaseModel, ConfigDict
@@ -44,12 +44,14 @@ class ApplicationCommand(BaseModel):
     A command invocation, and recursively its subcommands and arguments.
 
     The same model serves all three tiers of discord's option tree: the command itself
-    has `options` and no `value`, a leaf argument has a `value` and no `options`, and a
-    subcommand sits in between. `id` and `version` are only set on the outermost one,
-    and are filled in from the bot's command index just before sending.
+    has ``options`` and no ``value``, a leaf argument has a ``value`` and no ``options``,
+    and a subcommand sits in between.
 
-    `focused` marks the argument the caret is in, which is the one an autocomplete
-    interaction is asking about.
+    :ivar id: Only set on the outermost command, filled in from the bot's command index
+        just before sending.
+    :ivar version: Like ``id``.
+    :ivar focused: Marks the argument the caret is in, which is the one an
+        autocomplete interaction is asking about.
     """
 
     model_config = ConfigDict(use_enum_values=True)
@@ -66,8 +68,8 @@ class ComponentType(Enum):
 	"""
 	Discord's component type numbers, as sent back in an interaction payload.
 
-	Mirrors `type` on the `..gateway.component` models, so a received
-	component can be echoed back with `ComponentType(component.type)`.
+	Mirrors ``type`` on the :mod:`discord_self_bot_tester.gateway.component` models, so a
+	received component can be echoed back with ``ComponentType(component.type)``.
 	"""
 
 	ACTION_ROW = 1
@@ -88,10 +90,12 @@ class ComponentType(Enum):
 
 class MessageComponent(BaseModel):
 	"""
-	The `data` of a MESSAGE_COMPONENT interaction: which component was touched.
+	The ``data`` of a ``MESSAGE_COMPONENT`` interaction: which component was touched.
 
-	`values` is left None for a button and holds the chosen values for a select menu.
-	Built by the helpers in `.component` rather than by hand.
+	Built by the helpers in :mod:`discord_self_bot_tester.requests.component` rather than
+	by hand.
+
+	:ivar values: Left ``None`` for a button, the chosen values for a select menu.
 	"""
 
 	custom_id: str
@@ -103,10 +107,10 @@ class ModalSubmitComponentData(BaseModel):
 	"""
 	One node of a submitted modal, echoing the shape of the component it answers.
 
-	Which of `value`, `values`, `component` and `components` is populated depends
-	entirely on `type`; the comments on each field say which types use it. Built by
-	`ModalResponseBuilder`, which keeps the nesting consistent with the modal discord
-	actually sent.
+	Which of ``value``, ``values``, ``component`` and ``components`` is populated depends
+	entirely on ``type``; the comments on each field say which types use it. Built by
+	:class:`~discord_self_bot_tester.requests.modal.ModalResponseBuilder`,
+	which keeps the nesting consistent with the modal discord actually sent.
 	"""
 
 	type: ComponentType
@@ -125,7 +129,7 @@ class ModalSubmitComponentData(BaseModel):
 # https://docs.discord.food/interactions/receiving-and-responding#modal-submit-data-structure
 class ModalSubmitData(BaseModel):
 	"""
-	The `data` of a MODAL_SUBMIT interaction: the modal's own ids plus the answers.
+	The ``data`` of a ``MODAL_SUBMIT`` interaction: the modal's own ids plus the answers.
 	"""
 
 	# the id of the modal discord sent us, echoed back
@@ -137,7 +141,7 @@ InteractionDataType : TypeAlias = ApplicationCommand | MessageComponent | ModalS
 
 class InteractionFailed(Exception):
     """
-    Discord accepted the HTTP request but the gateway reported INTERACTION_FAILURE.
+    Discord accepted the HTTP request but the gateway reported ``INTERACTION_FAILURE``.
 
     Usually means the receiving bot raised, timed out, or refused the interaction - the
     HTTP call succeeding only means discord took delivery of it.
@@ -149,10 +153,12 @@ class Interaction(Request):
     """
     Any of discord's four interaction types, built by the helpers rather than by hand.
 
-    `nonce` is chosen by us and is the thread tying everything together: discord echoes
-    it on the message the interaction produces, on the modal it opens, and on the
-    INTERACTION_SUCCESS dispatch, which is how the assertions know which reply is
-    theirs.
+    :ivar nonce: Chosen by us, and the thread tying everything together: discord echoes
+        it on the message the interaction produces, on the modal it opens, and on the
+        ``INTERACTION_SUCCESS`` dispatch, which is how the assertions know which reply
+        is theirs.
+    :ivar message_id: The message whose component was used, ``MESSAGE_COMPONENT`` only.
+    :ivar message_flags: That message's flags, ``MESSAGE_COMPONENT`` only.
     """
 
     type: InteractionType
@@ -170,8 +176,13 @@ class Interaction(Request):
         """
         Posts the interaction, acks it, then waits for the gateway's verdict.
 
-        Raises `SelfBotRequestError` if discord rejects the call outright, and
-        `InteractionFailed` if it accepts it but the receiving application errors.
+        :param bot: The account it is sent as.
+        :param session: A session already authorised as ``bot``.
+        :raises SelfBotRequestError: If discord rejects the call outright.
+        :raises SelfBotRequestSetupError: If the command was never indexed.
+        :raises InteractionFailed: If discord accepts it but the receiving application
+            errors.
+        :raises TimeoutError: If discord never reports a verdict.
         """
         # dispatch depending on type
         
@@ -190,15 +201,9 @@ class Interaction(Request):
         gateway._interaction_status_events[self.nonce] = status_event
 
         try:
-            res = await session.post(INTERACTIONS_URL, json=json)
-            if res.status != 204:
-                res_data = await res.text()
-                raise SelfBotRequestError("Request failed: " + str(res_data), res.status)
-
-            res = await session.post(ACK_URL.format(self.channel_id, self.nonce), json=ACK_BODY)
-            if res.status != 200:
-                res_data = await res.text()
-                raise SelfBotRequestError("Request failed: " + str(res_data), res.status)
+            await _check_status(await session.post(INTERACTIONS_URL, json=json), 204)
+            await _check_status(
+                await session.post(ACK_URL.format(self.channel_id, self.nonce), json=ACK_BODY), 200)
 
             await asyncio.wait_for(status_event.wait(), timeout=INTERACTION_TIMEOUT)
 
@@ -219,6 +224,8 @@ class Interaction(Request):
 
         Discord rejects a command invocation that does not carry the exact version it
         currently has registered, so this cannot be skipped or guessed.
+
+        :raises SelfBotRequestSetupError: If the application or command was never indexed.
         """
         assert isinstance(self.data, ApplicationCommand)
          
@@ -241,7 +248,12 @@ class Interaction(Request):
 def _build_interaction(type: InteractionType, application_id: int, guild_id: int | None, channel_id: int, data: InteractionDataType,
                       message_id: str | None = None, message_flags: int | None = None) -> Interaction:
     """
-    An `Interaction` with a randomly generated nonce.
+    Builds an :class:`Interaction` with a randomly generated nonce.
+
+    :param guild_id: ``None`` for a DM.
+    :param message_id: The message whose component was used, ``MESSAGE_COMPONENT`` only.
+    :param message_flags: That message's flags, ``MESSAGE_COMPONENT`` only.
+    :returns: The interaction, ready to send.
     """
     return Interaction(
         type=type,
@@ -263,13 +275,13 @@ class ApplicationCommandBuilder:
     """
     Assembles a slash command invocation, or an autocomplete request for one.
 
-    `set_main_command` descends into a subcommand and points the argument setters at
-    it, so calls read in the order a user would type them.
+    :meth:`set_main_command` descends into a subcommand and points the argument setters at
+    it, so calls read in the order a user would type them. Example::
 
-    ApplicationCommandBuilder(InteractionType.APP_COMMAND, "attendance")\
-        .set_main_command("click_for_attendance")\
-        .set_arg("event", EVENT_UUID)\
-        .compile(APPLICATION_ID, GUILD_ID, CHANNEL_ID)
+        ApplicationCommandBuilder(InteractionType.APP_COMMAND, "attendance")\\
+            .set_main_command("click_for_attendance")\\
+            .set_arg("event", EVENT_UUID)\\
+            .compile(APPLICATION_ID, GUILD_ID, CHANNEL_ID)
     """
 
     Self: TypeAlias = 'ApplicationCommandBuilder'
@@ -279,13 +291,21 @@ class ApplicationCommandBuilder:
     main_command: ApplicationCommand
 
     def __init__(self, interaction_type: InteractionTypeApplicationCommand, name: str):
+        """
+        :param interaction_type: ``APP_COMMAND`` to invoke the command, or
+            ``APPLICATION_COMMAND_AUTOCOMPLETE`` to ask for its suggestions.
+        :param name: The top level command's name.
+        """
         self.interaction_type = interaction_type
         self.data = ApplicationCommand(type=ApplicationCommandType.CHAT_INPUT, name=name, options=None, value=None, version=None)
         self.main_command = self.data
 
     def set_main_command(self, name: str) -> Self:
         """
-        Nests a subcommand under the command, and aims `set_arg` at it.
+        Nests a subcommand under the command, and aims :meth:`set_arg` at it.
+
+        :param name: The subcommand's name.
+        :returns: This builder.
         """
         self.main_command = ApplicationCommand(
             type=ApplicationCommandType.CHAT_INPUT, name=name, options=None, value=None)
@@ -296,9 +316,13 @@ class ApplicationCommandBuilder:
         """
         Adds an argument to whichever command is currently being built.
 
-        `focused=True` marks this as the argument an autocomplete request is about;
-        exactly one argument should be focused on an
-        APPLICATION_COMMAND_AUTOCOMPLETE interaction, and none on an APP_COMMAND.
+        :param name: The argument's name.
+        :param value: The argument's value.
+        :param focused: ``True`` marks this as the argument an autocomplete request is
+            about. Exactly one argument should be focused on an
+            ``APPLICATION_COMMAND_AUTOCOMPLETE`` interaction, and none on an
+            ``APP_COMMAND``.
+        :returns: This builder.
         """
         if self.main_command.options is None:
             self.main_command.options = []
@@ -320,10 +344,14 @@ class ApplicationCommandBuilder:
         channel_id: int
         ) -> Interaction:
         """
-        The finished interaction, ready to send or to hand to an assertion.
+        Finishes the interaction.
 
-        `application_id` is the id of the bot being tested, and has to be the same one
-        passed to `Bot.index_application_commands`.
+        :param application_id: The id of the bot being tested. Its commands have to
+            have been indexed with
+            :meth:`Bot.index_application_commands <discord_self_bot_tester.bot.Bot.index_application_commands>`.
+        :param guild_id: The guild to invoke the command in.
+        :param channel_id: The channel to invoke the command in.
+        :returns: The interaction, ready to send or to hand to an assertion.
         """
         return _build_interaction(
             self.interaction_type,

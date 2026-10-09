@@ -13,26 +13,34 @@ class Assertion(BaseModel, Generic[R, E], ABC):
     """
     An expectation about the event a request produces.
 
-    `R` is the request type it can be used with and `E` the event it returns, so a
+    ``R`` is the request type it can be used with and ``E`` the event it returns, so a
     satisfied assertion hands back the parsed payload for a test to carry on with.
     """
 
     @abstractmethod
     def _check(self, gateway_event: E):
         """
-        Raises `AssertionError` if the matched event fails the expectations.
+        Checks the matched event against every expectation.
 
-        This is seperate from filtering as this checks whether the message retrieved from
-        the filter matches all asserted coonditions.
+        This is separate from filtering: the filter picks which event to look at, this
+        checks that event meets all the asserted conditions.
+
+        :param gateway_event: The event the filter matched.
+        :raises AssertionError: If it fails an expectation.
         """
         raise NotImplementedError
 
     @abstractmethod
     async def assert_request(self, bot : Bot, req : R, deadline: int = 5) -> E:
         """
-        Installs the filter, sends `req`, and returns the event it produced.
+        Installs the filter, sends the request, and checks the event it produced.
 
-        Raises `TimeoutError` if nothing matched within `deadline` seconds.
+        :param bot: The account to send the request as.
+        :param req: The request expected to produce the event.
+        :param deadline: How many seconds to wait for the event.
+        :returns: The event, for the test to carry on with.
+        :raises AssertionError: If the event fails an expectation.
+        :raises TimeoutError: If nothing matched in time.
         """
         raise NotImplementedError
 
@@ -42,5 +50,11 @@ class Assertion(BaseModel, Generic[R, E], ABC):
         Waits for a matching event without sending anything.
 
         For the follow-ups of an exchange already set off by an earlier request.
+
+        :param bot: The account listening for the event.
+        :param deadline: How many seconds to wait for the event.
+        :returns: The event, for the test to carry on with.
+        :raises AssertionError: If the event fails an expectation.
+        :raises TimeoutError: If nothing matched in time.
         """
         raise NotImplementedError
