@@ -7,7 +7,7 @@ CommandAutoCompleteChoiceValueType: TypeAlias = float | int | str
 
 class CommandAutoCompleteChoice(BaseModel):
     """
-    One suggestion: `name` is rendered in the client, `value` is what gets submitted.
+    One suggestion: ``name`` is rendered in the client, ``value`` is what gets submitted.
     """
 
     name: str

@@ -1,6 +1,4 @@
-from discord_self_bot_tester.gateway import GatewayException
-
-from .gateway import GatewayEvent, Gateway
+from .gateway import GatewayEvent, Gateway, GatewayException
 
 import aiohttp
 
@@ -15,16 +13,21 @@ class Bot:
     """
     A logged in user account, driven from tests.
     
-    Construct it with a user token, `run` it on an already running event loop, then
-    `wait_ready` before doing anything else (we need to retrieve user_id and session_id from
-    the `READY` payload).
+    Construct it with a user token, :meth:`run` it on an already running event loop, then
+    :meth:`wait_ready` before doing anything else (we need to retrieve ``user_id`` and
+    ``session_id`` from the ``READY`` payload).
 
     Any command whose interactions are to be sent also has to be indexed first, with
-    `index_application_commands`.
+    :meth:`index_application_commands`.
 
-    Every method here surfaces a dead websocket as a `RuntimeError` chained onto the
+    Every method here surfaces a dead websocket as a ``RuntimeError`` chained onto the
     original failure, so a connection lost mid-run fails the test rather than hanging
     it.
+
+    :ivar token: The user token the account logs in with.
+    :ivar session_id: The gateway session id, known once :meth:`wait_ready` returns.
+    :ivar user_id: The account's own user id, known once :meth:`wait_ready` returns.
+    :ivar ready: Whether the ``READY`` payload has been handled, or the socket died.
     """
 
     token: str
@@ -42,6 +45,9 @@ class Bot:
     _ws_error : BaseException | None
     
     def __init__(self, token : str):
+        """
+        :param token: A discord user token, not a bot token.
+        """
         self.token = token
         self._command_version = {}
         # tasks that last for Bot lifetime
@@ -53,8 +59,8 @@ class Bot:
     def run(self):  # needs to run before anything and be global
         """
         Runs the self bot.
-        
-        @precond event loop exists and tests use same event loop
+
+        .. note:: Needs a running event loop, and every test has to use that same loop.
         """
         logging.debug("Running bot")
         loop = asyncio.get_running_loop()
@@ -64,11 +70,8 @@ class Bot:
         """
         Cancels the gateway and heartbeat tasks and closes the socket.
 
-        Call it from a `finally` so a failed assertion still tears the connection down.
+        Call it from a ``finally`` so a failed assertion still tears the connection down.
         """
-        await self.__stop_tasks()
-
-    async def __stop_tasks(self):
         for task in self._tasks:
             task.cancel()
         try:
@@ -82,16 +85,18 @@ class Bot:
 
         The socket runs in its own task, so without this its errors would surface only
         as an assertion mysteriously timing out.
+
+        :raises RuntimeError: If the websocket has died.
         """
         if self._ws_error is not None:
             raise RuntimeError(f"Websocket died") from self._ws_error
 
     async def wait_ready(self):
         """
-        Waits until discord's READY payload has been handled.
+        Waits until discord's ``READY`` payload has been handled.
 
-        Raises `RuntimeError` if the socket died first, which is what an invalid token
-        looks like.
+        :raises RuntimeError: If the socket died first, which is what an invalid token
+            looks like.
         """
         await self._gateway.wait_ready()
         self._check_ws_failed()
@@ -104,7 +109,10 @@ class Bot:
         currently has registered, so this has to be run before any commands sent in ANY guilds.
 
         Commands already indexed are left alone, so re-running this will not pick up a
-        redeployed bot's new versions; build a fresh `Bot` for that.
+        redeployed bot's new versions; build a fresh :class:`Bot` for that.
+
+        :param guild_id: The guild whose commands to index.
+        :raises RuntimeError: If discord refuses the request.
         """
         async with aiohttp.ClientSession() as session:
             headers = {"Authorization": self.token,
@@ -123,10 +131,13 @@ class Bot:
     
     async def get_next_gateway_event(self, deadline: int) -> GatewayEvent:
         """
-        The next event a filter claimed, waiting at most `deadline` seconds.
+        Waits for the next event a filter claimed. Used by the assertions rather than
+        directly.
 
-        Used by the assertions rather than directly; raises `TimeoutError` if nothing
-        matched in time and `RuntimeError` if the socket died while waiting.
+        :param deadline: How many seconds to wait at most.
+        :returns: The claimed event.
+        :raises TimeoutError: If nothing matched in time.
+        :raises RuntimeError: If the socket died while waiting.
         """
         self._check_ws_failed()
         
