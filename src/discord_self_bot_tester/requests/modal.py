@@ -1,5 +1,3 @@
-from types import UnionType
-
 from ..gateway.component import (
     ActionRowComponent,
     Checkbox,
@@ -9,9 +7,11 @@ from ..gateway.component import (
     LabelComponent,
     RadioGroup,
     SelectComponent,
+    SelectComponentBase,
     StringSelectComponent,
     TextInputComponent,
     child_components,
+    walk_components,
 )
 from ..gateway.modal import Modal
 
@@ -40,26 +40,16 @@ def _find_label_or_text_input(components: list[Component], label: str) -> TextIn
     """
     Depth first search for the label with this exact caption.
     """
-    for component in components:
-        if (isinstance(component, LabelComponent) or \
-            isinstance(component, TextInputComponent)) and component.label == label:
-            return component
-        found = _find_label_or_text_input(child_components(component), label)
-        if found is not None:
-            return found
-    return None
+    return next((component for component in walk_components(components)
+                 if isinstance(component, (LabelComponent, TextInputComponent))
+                 and component.label == label), None)
 
 def _find_custom_id(components: list[Component], custom_id: str) -> Component | None:
     """
     Depth first search for the component with this developer defined id.
     """
-    for component in components:
-        if getattr(component, "custom_id", None) == custom_id:
-            return component
-        found = _find_custom_id(child_components(component), custom_id)
-        if found is not None:
-            return found
-    return None
+    return next((component for component in walk_components(components)
+                 if getattr(component, "custom_id", None) == custom_id), None)
 
 def _label_paths(components: list[Component], prefix: tuple[str, ...] = ()) -> list[str]:
     """
@@ -76,13 +66,8 @@ def _label_paths(components: list[Component], prefix: tuple[str, ...] = ()) -> l
     return paths
 
 def _custom_ids(components: list[Component]) -> list[str]:
-    ids: list[str] = []
-    for component in components:
-        custom_id = getattr(component, "custom_id", None)
-        if custom_id is not None:
-            ids.append(custom_id)
-        ids.extend(_custom_ids(child_components(component)))
-    return ids
+    return [component.custom_id for component in walk_components(components)
+            if getattr(component, "custom_id", None) is not None]
 
 
 class ModalResponseBuilder:
@@ -130,7 +115,6 @@ class ModalResponseBuilder:
         found: LabelComponent | TextInputComponent | None = None
 
         for depth, label in enumerate(labels):
-            print(f"(DEPTH: {depth}) components: {scope!r}")
             found = _find_label_or_text_input(scope, label)
             if found is None:
                 where = "" if depth == 0 else f" under {' > '.join(labels[:depth])!r}"
@@ -180,7 +164,7 @@ class ModalResponseBuilder:
         they will have upload the file first using `Attachment.send(bot)` and then use
         attachment id (obtained via `Attachment.get_attachment_id()`) as the value.
         """
-        component = self._require(SelectComponent, CheckboxGroup, FileUpload)
+        component = self._require(SelectComponentBase, CheckboxGroup, FileUpload)
 
         if isinstance(component, (StringSelectComponent, CheckboxGroup)):
             allowed = [option.value for option in component.options]
@@ -228,13 +212,13 @@ class ModalResponseBuilder:
 
         values: list[str] = []
         for option_label in option_labels:
-            matched = [option.value for option in component.options
-                       if option.label == option_label]
-            if len(matched) == 0:
+            matched = next((option.value for option in component.options
+                            if option.label == option_label), None)
+            if matched is None:
                 raise AssertionError(
                     f"Component {self._selected_as!r} has no option labelled {option_label!r}"
                     f"\nAvailable option labels: {[option.label for option in component.options]}")
-            values.append(matched[0])
+            values.append(matched)
 
         if isinstance(component, RadioGroup):
             if len(values) != 1:
@@ -270,10 +254,7 @@ class ModalResponseBuilder:
                 f"Modal {self.modal.custom_id!r} has required component(s) left"
                 f" unanswered: {missing}")
 
-        components = [compiled for compiled
-                        in (self._compile_component(component)
-                            for component in self.modal.components)
-                        if compiled is not None]
+        components = list(filter(None, map(self._compile_component, self.modal.components)))
 
         return _build_interaction(
             InteractionType.MODAL_SUBMIT,
@@ -297,7 +278,7 @@ class ModalResponseBuilder:
                 " which holds no value")
         self._selected = component
 
-    def _require[T](self, *types: type[T] | UnionType) -> T:
+    def _require[T](self, *types: type[T]) -> T:
         """
         The selected component, asserted to be one of `types`.
 
@@ -305,21 +286,12 @@ class ModalResponseBuilder:
         """
         if self._selected is None:
             raise AssertionError("No component selected, call select() first")
-        
-        flat_types: list[type] = []
-        for t in types:
-            if isinstance(t, UnionType):
-                flat_types.extend(t.__args__)
-            else:
-                flat_types.append(t)
-        
-        flat_types_tuple = tuple(flat_types)
-        
-        if not isinstance(self._selected, flat_types_tuple):
+
+        if not isinstance(self._selected, types):
             raise AssertionError(
                 f"Component {self._selected_as!r} is a {type(self._selected).__name__},"
-                f" expected one of: {[expected.__name__ for expected in flat_types_tuple]}")
-        
+                f" expected one of: {[expected.__name__ for expected in types]}")
+
         return cast(T, self._selected)
 
     def _answer(self, component: AnswerComponent, value: str | bool | None = None,
@@ -365,10 +337,7 @@ class ModalResponseBuilder:
         Mirrors the modal's own layout, dropping the branches holding no answer.
         """
         if isinstance(component, ActionRowComponent):
-            inner = [compiled for compiled
-                     in (self._compile_component(child)
-                         for child in component.components)
-                     if compiled is not None]
+            inner = list(filter(None, map(self._compile_component, component.components)))
             if len(inner) == 0:
                 return None
             return ModalSubmitComponentData(
@@ -387,8 +356,4 @@ class ModalResponseBuilder:
                 component=inner
             )
 
-        custom_id = getattr(component, "custom_id", None)
-        if custom_id is None:
-            return None
-
-        return self._answers.get(custom_id)
+        return self._answers.get(getattr(component, "custom_id", None))

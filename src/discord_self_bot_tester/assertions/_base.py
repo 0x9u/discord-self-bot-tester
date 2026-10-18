@@ -22,8 +22,8 @@ class Assertion(BaseModel, Generic[R, E], ABC):
         """
         Raises `AssertionError` if the matched event fails the expectations.
 
-        This is seperate from filtering as this checks whether the message retrieved from
-        the filter matches all asserted coonditions.
+        This is separate from filtering as this checks whether the message retrieved from
+        the filter matches all asserted conditions.
         """
         raise NotImplementedError
 
