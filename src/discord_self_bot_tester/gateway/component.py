@@ -18,7 +18,7 @@ class ButtonStyle(Enum):
 	"""
 	How a button is rendered.
 
-	NOTE: LINK and PREMIUM are handled entirely by the client and send no interaction.
+	.. note:: LINK and PREMIUM are handled entirely by the client and send no interaction.
 	"""
 
 	PRIMARY = 1
@@ -32,7 +32,7 @@ class ButtonComponent(BaseModel):
     """
     A clickable button.
 
-    NOTE: Only buttons carrying a `custom_id` produce an interaction.
+    .. note:: Only buttons carrying a ``custom_id`` produce an interaction.
     """
 
     type: Literal[2]
@@ -76,7 +76,7 @@ class SelectOption(BaseModel):
 	"""
 	One entry in a string select or a radio/checkbox group.
 
-	`label` is what the client renders and `value` is what gets submitted.
+	``label`` is what the client renders and ``value`` is what gets submitted.
 	"""
 
 	label: str
@@ -87,10 +87,9 @@ class SelectOption(BaseModel):
 
 class SelectComponentBase(BaseModel):
 	"""
-	Shared shape of every select menu.
-    
-    Contains the attributes that are shared among its subclasses, e.g. min_values and max_values.
-    Note this is not a `Component`.
+	Shared shape of every select menu, e.g. ``min_values`` and ``max_values``.
+
+	.. note:: This is not a :class:`Component` itself, only its subclasses are.
 	"""
 
 	id: int | None = None
@@ -104,7 +103,7 @@ class SelectComponentBase(BaseModel):
 
 class StringSelectComponent(SelectComponentBase):
     """
-    A menu of developer defined options. The only select whose `options` are populated.
+    A menu of developer defined options. The only select whose ``options`` are populated.
     """
 
     type: Literal[3]
@@ -112,14 +111,18 @@ class StringSelectComponent(SelectComponentBase):
 
 class UserSelectComponent(SelectComponentBase):
     """
-    A user picker. Submits user ids, so use `select_dropdown_values` on it.
+    A user picker. Submits user ids, so use
+    :func:`~discord_self_bot_tester.requests.component.select_dropdown_values`
+    on it.
     """
 
     type: Literal[5]
 
 class RoleSelectComponent(SelectComponentBase):
     """
-    A role picker. Submits role ids, so use `select_dropdown_values` on it.
+    A role picker. Submits role ids, so use
+    :func:`~discord_self_bot_tester.requests.component.select_dropdown_values`
+    on it.
     """
 
     type: Literal[6]
@@ -133,7 +136,9 @@ class MentionableSelectComponent(SelectComponentBase):
 
 class ChannelSelectComponent(SelectComponentBase):
     """
-    A channel picker. Submits channel ids, so use `select_dropdown_values` on it.
+    A channel picker. Submits channel ids, so use
+    :func:`~discord_self_bot_tester.requests.component.select_dropdown_values`
+    on it.
     """
 
     type: Literal[8]
@@ -142,7 +147,6 @@ SelectComponent : TypeAlias = (
     StringSelectComponent
     | UserSelectComponent
     | RoleSelectComponent
-    | MentionableSelectComponent
     | MentionableSelectComponent
     | ChannelSelectComponent
 )
@@ -160,8 +164,9 @@ class LabelComponent(BaseModel):
     """
     Wraps a single component with the caption rendered above it.
 
-    Discord's replacement for the text input's own deprecated `label`, and the thing
-    `ModalResponseBuilder.select` matches on, because it is the text a user sees.
+    Discord's replacement for the text input's own deprecated ``label``, and the thing
+    :meth:`ModalResponseBuilder.select <discord_self_bot_tester.requests.modal.ModalResponseBuilder.select>`
+    matches on, because it is the text a user sees.
     """
 
     type: Literal[18]
@@ -185,7 +190,7 @@ class FileUpload(BaseModel):
 
 class RadioGroupOption(BaseModel):
 	"""
-	One choice in a `RadioGroup`.
+	One choice in a :class:`RadioGroup`.
 	"""
 
 	value: str
@@ -206,7 +211,7 @@ class RadioGroup(BaseModel):
 
 class CheckboxGroupOption(BaseModel):
 	"""
-	One choice in a `CheckboxGroup`.
+	One choice in a :class:`CheckboxGroup`.
 	"""
 
 	value: str
@@ -262,7 +267,10 @@ LabelComponent.model_rebuild()
 
 def child_components(component: Component) -> list[Component]:
     """
-    The components nested directly inside `component`, layout components only.
+    Lists the components nested directly inside a layout component.
+
+    :param component: The component to look inside.
+    :returns: Its direct children, or an empty list if it is not a layout component.
     """
     if isinstance(component, ActionRowComponent):
         return component.components
@@ -272,7 +280,10 @@ def child_components(component: Component) -> list[Component]:
 
 def walk_components(components: list[Component]) -> Iterator[Component]:
     """
-    Every component in the tree, parents before their children.
+    Walks a component tree depth first.
+
+    :param components: The top level components of the tree.
+    :returns: Every component in the tree, parents before their children.
     """
     for component in components:
         yield component

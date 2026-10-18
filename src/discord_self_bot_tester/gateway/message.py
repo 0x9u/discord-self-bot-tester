@@ -7,7 +7,8 @@ class MessageAuthor(BaseModel):
     """
     Who sent a message, as message payloads describe them.
     
-    NOTE: `User` is not used for author in `Message` since it carries a smaller payload.
+    .. note:: :class:`~discord_self_bot_tester.gateway.user.User` is not used for
+        ``author`` since this carries a smaller payload.
     """
 
     id: str

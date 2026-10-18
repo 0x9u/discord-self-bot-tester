@@ -290,7 +290,7 @@ toml = [
 
 [[package]]
 name = "discord-self-bot-tester"
-version = "0.4.0"
+version = "0.6.0"
 source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },
@@ -315,7 +315,7 @@ dev = [
 requires-dist = [
     { name = "aiohttp", specifier = ">=3.14" },
     { name = "dotenv", specifier = ">=0.9.9" },
-    { name = "filetype" },
+    { name = "filetype", specifier = ">=1.2.0" },
     { name = "pydantic", specifier = ">=2.13" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-cov", marker = "extra == 'dev'" },

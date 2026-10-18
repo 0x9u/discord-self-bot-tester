@@ -43,15 +43,17 @@ class GatewayException(GatewayEvent):
     """
     Queued in place of a real event when the socket dies.
 
-    Lets a waiting `get_next_gateway_event` return immediately rather than waiting for
-    its deadline.
+    Lets a waiting :meth:`Gateway.get_next_gateway_event` return immediately rather than
+    waiting for its deadline.
     """
     pass
 
 class Gateway:
     """
     Owns the websocket and the queue of events the assertions read from.
-    Used by `Bot`, created in its constructor and started by `Bot.run`.
+
+    Used by :class:`~discord_self_bot_tester.bot.Bot`, created in its constructor and
+    started by :meth:`Bot.run <discord_self_bot_tester.bot.Bot.run>`.
     """
 
     _ws: aiohttp.ClientWebSocketResponse | None = None
@@ -62,7 +64,7 @@ class Gateway:
     
     bot: "Bot"
     
-    # used by `Interaction.request` to await for its status data.
+    # used by Interaction.request to await for its status data.
     _interaction_status_events: dict[str, asyncio.Event]
     _interaction_status_data: dict[str, bool]
 
@@ -75,16 +77,17 @@ class Gateway:
 
     async def wait_ready(self):
         """
-        Waits until READY has been handled, so `session_id` and `user_id` are known.
-        
-        NOTE: when the socket dies, since `init_ws` sets `ready` to True, callers are expected to check`Bot._ws_error` afterwards.
+        Waits until ``READY`` has been handled, so ``session_id`` and ``user_id`` are known.
+
+        .. note:: :meth:`init_ws` also sets ``ready`` when the socket dies, so callers are
+            expected to check ``Bot._ws_error`` afterwards.
         """
         async with self._ready_cond:
             await self._ready_cond.wait_for(lambda: self.bot.ready)
 
     async def __heartbeat_task(self):
         """
-        Keeps the socket alive for as long as it is open.        
+        Keeps the socket alive for as long as it is open.
         """
         _ws = cast(aiohttp.ClientWebSocketResponse, self._ws)
 
@@ -106,9 +109,11 @@ class Gateway:
     
     async def get_next_gateway_event(self, deadline: int) -> GatewayEvent:
         """
-        The next event a filter claimed, waiting at most `deadline` seconds.
+        Waits for the next event a filter claimed.
 
-        Raises `TimeoutError` if nothing matched in time.
+        :param deadline: How many seconds to wait at most.
+        :returns: The claimed event, or a :class:`GatewayException` if the socket died.
+        :raises TimeoutError: If nothing matched in time.
         """
         gateway_event = await asyncio.wait_for(self._gateway_queue.get(), timeout=deadline)
         self._gateway_queue.task_done()
@@ -118,9 +123,12 @@ class Gateway:
         """
         Connects, identifies, then dispatches payloads until the socket closes.
 
-        Runs for the lifetime of the bot as a task owned by `Bot._tasks`. Any error is
-        recorded on `Bot._ws_error` and re-raised, so `Bot._check_ws_failed` can
+        Runs for the lifetime of the bot as a task owned by ``Bot._tasks``. Any error is
+        recorded on ``Bot._ws_error`` and re-raised, so ``Bot._check_ws_failed`` can
         surface it on the test's own thread of control.
+
+        :raises RuntimeError: If discord invalidates the session or closes the socket
+            abnormally, which is what an invalid token looks like.
         """
         async with aiohttp.ClientSession() as session:
             try:
@@ -182,12 +190,8 @@ class Gateway:
                                     case _:
                                         # the filter decides which payload it wants and
                                         # builds the gateway event out of it
-                                        if self._assert_filter is None:
-                                            logging.debug(
-                                                "Unknown data: " + str(data))
-                                            continue
-                                        matched = self._assert_filter.matches(
-                                            self.bot.user_id, data)
+                                        matched = None if self._assert_filter is None \
+                                            else self._assert_filter.matches(self.bot.user_id, data)
                                         if matched is None:
                                             logging.debug(
                                                 "Unknown data: " + str(data))
@@ -203,10 +207,7 @@ class Gateway:
                 await self._gateway_queue.put(GatewayException())
                 raise
             finally:
-                if self._ws is not None:
-                    await self._ws.close()
-                
-                await session.close()
+                # both `async with`s already close the socket and session
                 # to propgate error to wait_ready
                 async with self._ready_cond:
                     self.bot.ready = True

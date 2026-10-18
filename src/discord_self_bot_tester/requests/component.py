@@ -16,8 +16,10 @@ from .commands import (
 
 def _build(message: Message, data: MessageComponent) -> Interaction:
     """
-    A MESSAGE_COMPONENT interaction aimed at `message`, with its ids filled in.
-    """    
+    Builds a ``MESSAGE_COMPONENT`` interaction aimed at ``message``, with its ids filled in.
+
+    :raises AssertionError: If the message says nothing about which application sent it.
+    """
     # if guild_id is None then its DM
     guild_id = int(message.guild_id) if message.guild_id is not None else None
 
@@ -27,12 +29,12 @@ def _build(message: Message, data: MessageComponent) -> Interaction:
     elif message.author is not None:
         application_id = message.author.id
     else:
-        raise AssertionError("Neither message.author nor message.application_id is not None")
+        raise AssertionError("Message has neither an author nor an application_id")
 
     return _build_interaction(
         InteractionType.MESSAGE_COMPONENT,
         int(application_id),
-        int(guild_id) if guild_id is not None else None,
+        guild_id,
         int(message.channel_id),
         data,
         message_id=message.id,
@@ -42,9 +44,14 @@ def _build(message: Message, data: MessageComponent) -> Interaction:
 def find_button(message: Message, label: str | None = None,
                 custom_id: str | None = None) -> ButtonComponent:
     """
-    The first button on the message matching `label` and/or `custom_id`.
+    Finds a pressable button on a message.
 
-    Raises if nothing matches, or if the button could not be pressed anyway.
+    :param message: The message carrying the button.
+    :param label: The text discord renders on the button.
+    :param custom_id: The button's developer defined id, if the label is not enough.
+    :returns: The first button matching every one of ``label`` and ``custom_id`` given.
+    :raises AssertionError: If neither is given, nothing matches, or the button could
+        not be pressed anyway.
     """
     if label is None and custom_id is None:
         raise AssertionError("find_button needs a label or a custom_id")
@@ -78,9 +85,14 @@ def find_button(message: Message, label: str | None = None,
 
 def find_dropdown(message: Message, dropdown: str | None = None) -> SelectComponent:
     """
-    The select menu on the message, picked out by its placeholder or its custom_id.
+    Finds a usable select menu on a message.
 
-    `dropdown` may be left out when the message only carries one.
+    :param message: The message carrying the select menu.
+    :param dropdown: The menu's placeholder or custom_id. May be left out when the
+        message only carries one.
+    :returns: The matching select menu.
+    :raises AssertionError: If nothing matches, ``dropdown`` is ambiguous, or the menu is
+        disabled.
     """
     dropdowns = [component for component in walk_components(message.components or [])
             if isinstance(component, SelectComponent)]
@@ -114,14 +126,20 @@ def find_dropdown(message: Message, dropdown: str | None = None) -> SelectCompon
 
 def press_button(message: Message, label: str | None = None, custom_id: str | None = None) -> Interaction:
     """
-    Presses a button on `message` by the label discord renders on it.
+    Presses a button on a message by the label discord renders on it.
 
     The channel, guild and application the interaction needs are taken off the
-    message, so only the label is normally needed.
+    message, so only the label is normally needed. Example::
 
-    msg = await MessageAssertionBuilder().compile().assert_request(bot, cmd)
-    await MessageAssertionBuilder().filter_by_message_update().compile()\\
-        .assert_request(bot, press_button(msg, "Confirm"))
+        msg = await MessageAssertionBuilder().compile().assert_request(bot, cmd)
+        await MessageAssertionBuilder().filter_by_message_update().compile()\\
+            .assert_request(bot, press_button(msg, "Confirm"))
+
+    :param message: The message carrying the button.
+    :param label: The text discord renders on the button.
+    :param custom_id: The button's developer defined id, if the label is not enough.
+    :returns: The interaction, ready to send or to hand to an assertion.
+    :raises AssertionError: See :func:`find_button`.
     """
     button = find_button(message, label, custom_id)
     
@@ -137,10 +155,15 @@ def press_button(message: Message, label: str | None = None, custom_id: str | No
 
 def select_dropdown(message: Message, *option_labels: str, dropdown: str | None = None) -> Interaction:
     """
-    Picks options out of a string select on `message` by the labels it renders.
+    Picks options out of a string select by the labels it renders.
 
-    `dropdown` names which select menu to use, by placeholder or custom_id, and can be
-    left out when the message only carries one.
+    :param message: The message carrying the select menu.
+    :param option_labels: The labels of the options to pick.
+    :param dropdown: The menu's placeholder or custom_id. May be left out when the
+        message only carries one.
+    :returns: The interaction, ready to send or to hand to an assertion.
+    :raises AssertionError: If the menu is not a string select, an option label does
+        not exist, or too few or many are picked.
     """
     selected = find_dropdown(message, dropdown)
     named = dropdown if dropdown is not None else selected.custom_id
@@ -165,10 +188,18 @@ def select_dropdown(message: Message, *option_labels: str, dropdown: str | None 
 
 def select_dropdown_values(message: Message, *values: str, dropdown: str | None = None) -> Interaction:
     """
-    Picks raw values out of a select menu on `message`.
+    Picks raw values out of a select menu.
 
     Needed for the user, role, mentionable and channel selects, whose values are
     snowflakes picked out of discord's own pickers rather than labelled options.
+
+    :param message: The message carrying the select menu.
+    :param values: The values to pick.
+    :param dropdown: The menu's placeholder or custom_id. May be left out when the
+        message only carries one.
+    :returns: The interaction, ready to send or to hand to an assertion.
+    :raises AssertionError: If a value is not one of a string select's options, or too
+        few or many are picked.
     """
     selected = find_dropdown(message, dropdown)
     named = dropdown if dropdown is not None else selected.custom_id
