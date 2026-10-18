@@ -106,7 +106,8 @@ class Bot:
         Learns the id and version of every application command in a guild.
 
         Discord rejects a command invocation that does not carry the exact version it
-        currently has registered, so this has to be run before any commands sent in ANY guilds.
+        currently has registered, so this has to be run for the guild the commands will be sent
+        in, before any APP_COMMAND or autocomplete interaction.
 
         Commands already indexed are left alone, so re-running this will not pick up a
         redeployed bot's new versions; build a fresh :class:`Bot` for that.

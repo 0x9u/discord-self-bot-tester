@@ -1,5 +1,3 @@
-from types import UnionType
-
 from ..gateway.component import (
     ActionRowComponent,
     Checkbox,
@@ -9,6 +7,7 @@ from ..gateway.component import (
     LabelComponent,
     RadioGroup,
     SelectComponent,
+    SelectComponentBase,
     StringSelectComponent,
     TextInputComponent,
     child_components,
@@ -25,7 +24,7 @@ from .commands import (
     _build_interaction
 )
 
-from typing import Self, TypeAlias, cast, get_args
+from typing import Self, TypeAlias, cast
 
 # components the user can put an answer into
 AnswerComponent: TypeAlias = (
@@ -179,7 +178,7 @@ class ModalResponseBuilder:
         :param values: The values to submit, within the component's min and max.
         :returns: This builder.
         """
-        component = self._require(SelectComponent, CheckboxGroup, FileUpload)
+        component = self._require(SelectComponentBase, CheckboxGroup, FileUpload)
 
         if isinstance(component, (StringSelectComponent, CheckboxGroup)):
             allowed = [option.value for option in component.options]
@@ -240,13 +239,13 @@ class ModalResponseBuilder:
 
         values: list[str] = []
         for option_label in option_labels:
-            matched = [option.value for option in component.options
-                       if option.label == option_label]
-            if len(matched) == 0:
+            matched = next((option.value for option in component.options
+                            if option.label == option_label), None)
+            if matched is None:
                 raise AssertionError(
                     f"Component {self._selected_as!r} has no option labelled {option_label!r}"
                     f"\nAvailable option labels: {[option.label for option in component.options]}")
-            values.append(matched[0])
+            values.append(matched)
 
         if isinstance(component, RadioGroup):
             if len(values) != 1:
@@ -285,10 +284,7 @@ class ModalResponseBuilder:
                 f"Modal {self.modal.custom_id!r} has required component(s) left"
                 f" unanswered: {missing}")
 
-        components = [compiled for compiled
-                        in (self._compile_component(component)
-                            for component in self.modal.components)
-                        if compiled is not None]
+        components = list(filter(None, map(self._compile_component, self.modal.components)))
 
         return _build_interaction(
             InteractionType.MODAL_SUBMIT,
@@ -314,25 +310,23 @@ class ModalResponseBuilder:
                 " which holds no value")
         self._selected = component
 
-    def _require[T](self, *types: type[T] | UnionType) -> T:
+    def _require[T](self, *types: type[T]) -> T:
         """
         Checks the selected component is the right kind for a setter. This is what
         stops :meth:`set_text` being used on a dropdown, and so on.
 
-        :param types: The component classes, or unions of them, the setter accepts.
+        :param types: The component classes the setter accepts.
         :returns: The selected component.
         :raises AssertionError: If nothing is selected, or it is none of ``types``.
         """
         if self._selected is None:
             raise AssertionError("No component selected, call select() first")
-        
-        flat_types = tuple(arg for t in types for arg in ((t,) if isinstance(t, type) else get_args(t)))
 
-        if not isinstance(self._selected, flat_types):
+        if not isinstance(self._selected, types):
             raise AssertionError(
                 f"Component {self._selected_as!r} is a {type(self._selected).__name__},"
-                f" expected one of: {[expected.__name__ for expected in flat_types]}")
-        
+                f" expected one of: {[expected.__name__ for expected in types]}")
+
         return cast(T, self._selected)
 
     def _answer(self, component: AnswerComponent, value: str | bool | None = None,
@@ -380,10 +374,7 @@ class ModalResponseBuilder:
         Mirrors the modal's own layout, dropping the branches holding no answer.
         """
         if isinstance(component, ActionRowComponent):
-            inner = [compiled for compiled
-                     in (self._compile_component(child)
-                         for child in component.components)
-                     if compiled is not None]
+            inner = list(filter(None, map(self._compile_component, component.components)))
             if len(inner) == 0:
                 return None
             return ModalSubmitComponentData(
@@ -402,8 +393,4 @@ class ModalResponseBuilder:
                 component=inner
             )
 
-        custom_id = getattr(component, "custom_id", None)
-        if custom_id is None:
-            return None
-
-        return self._answers.get(custom_id)
+        return self._answers.get(getattr(component, "custom_id", None))
