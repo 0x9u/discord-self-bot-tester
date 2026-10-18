@@ -28,9 +28,7 @@ class ModalAssertion(Assertion[Interaction, Modal]):
 
     
     async def assert_request(self, bot: Bot, req: Interaction, deadline: int = 5) -> Modal:
-        bot._gateway._assert_filter = ModalFilter(nonce=req.nonce)
-
-        await req.send(bot)
+        await self._send(bot, req, ModalFilter(nonce=req.nonce))
 
         gateway_event = await bot.get_next_gateway_event(deadline)
 

@@ -107,6 +107,16 @@ class Gateway:
                 }
             })
     
+    def arm(self, assert_filter: Filter | None):
+        """
+        Installs the filter for the next assertion and drops whatever earlier assertions
+        left unclaimed, so a failed assertion cannot feed its event to the next one.
+        """
+        self._assert_filter = assert_filter
+        while not self._gateway_queue.empty():
+            self._gateway_queue.get_nowait()
+            self._gateway_queue.task_done()
+
     async def get_next_gateway_event(self, deadline: int) -> GatewayEvent:
         """
         Waits for the next event a filter claimed.

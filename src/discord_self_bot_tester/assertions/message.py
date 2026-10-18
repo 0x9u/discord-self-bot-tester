@@ -192,9 +192,7 @@ class MessageAssertion(Assertion[Request, Message]):
         elif self.message_filter.is_followup and isinstance(req, Interaction):
             self.message_filter.nonce_id = req.nonce
 
-        bot._gateway._assert_filter = self.message_filter
-
-        await req.send(bot)
+        await self._send(bot, req, self.message_filter)
 
         return await self._receive(bot, deadline)
 
@@ -208,7 +206,7 @@ class MessageAssertion(Assertion[Request, Message]):
         if self.message_filter is None:
             raise TypeError("MessageAssertion must have a message_filter for assert_gateway")
 
-        bot._gateway._assert_filter = self.message_filter
+        bot._gateway.arm(self.message_filter)
 
         return await self._receive(bot, deadline)
 

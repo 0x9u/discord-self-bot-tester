@@ -46,7 +46,8 @@ class AutoCompleteAssertion(Assertion[Request, CommandAutoCompleteResponse]):
         return gateway_event
 
     async def assert_request(self, bot: Bot, req : Request, deadline: int = 5) -> CommandAutoCompleteResponse:
-        await req.send(bot)
+        # autocomplete responses are queued unfiltered, so only clear the stale state
+        await self._send(bot, req, None)
         return await self.assert_gateway(bot, deadline)
 
 class AutoCompleteAssertionBuilder:

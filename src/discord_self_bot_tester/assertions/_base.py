@@ -1,5 +1,5 @@
 from ..requests._base import Request
-from ..gateway._base import GatewayEvent
+from ..gateway._base import GatewayEvent, Filter
 from ..bot import Bot
 
 from pydantic import BaseModel
@@ -29,6 +29,18 @@ class Assertion(BaseModel, Generic[R, E], ABC):
         :raises AssertionError: If it fails an expectation.
         """
         raise NotImplementedError
+
+    async def _send(self, bot: Bot, req: Request, assert_filter: Filter | None):
+        """
+        Arms the gateway with ``assert_filter`` and sends ``req``, disarming again if the
+        send fails so the filter cannot claim events meant for a later assertion.
+        """
+        bot._gateway.arm(assert_filter)
+        try:
+            await req.send(bot)
+        except BaseException:
+            bot._gateway._assert_filter = None
+            raise
 
     @abstractmethod
     async def assert_request(self, bot : Bot, req : R, deadline: int = 5) -> E:
